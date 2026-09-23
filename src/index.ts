@@ -92,9 +92,11 @@ async function main() {
     console.log(`Health server listening on port ${healthPort}`);
   });
 
-  await router.start();
+  // Router start is blocking, so mark ready before starting
   isReady = true;
   console.log('Service ready');
+
+  await router.start();
 }
 
 main().catch((error) => {
