@@ -11,14 +11,17 @@ class KafkaConsumerAdapter implements Consumer {
   private consumer: KafkaConsumer;
   private messageQueue: MessageEnvelope[] = [];
   private resolveWaiting: ((env: MessageEnvelope) => void) | null = null;
+  private rejectWaiting: ((err: Error) => void) | null = null;
+  private fromBeginning: boolean;
 
-  constructor(consumer: KafkaConsumer) {
+  constructor(consumer: KafkaConsumer, fromBeginning = false) {
     this.consumer = consumer;
+    this.fromBeginning = fromBeginning;
   }
 
   async subscribe(topics: string[]): Promise<void> {
     for (const topic of topics) {
-      await this.consumer.subscribe({ topic, fromBeginning: false });
+      await this.consumer.subscribe({ topic, fromBeginning: this.fromBeginning });
     }
     await this.consumer.run({
       autoCommit: false,
@@ -53,8 +56,9 @@ class KafkaConsumerAdapter implements Consumer {
     if (this.messageQueue.length > 0) {
       return this.messageQueue.shift()!;
     }
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.resolveWaiting = resolve;
+      this.rejectWaiting = reject;
     });
   }
 
@@ -84,7 +88,18 @@ class KafkaConsumerAdapter implements Consumer {
     this.consumer.resume(topics.map((topic) => ({ topic })));
   }
 
+  // Release a pending receive() so callers are not left waiting on a closed consumer
+  private failWaiting(): void {
+    if (this.resolveWaiting && this.rejectWaiting) {
+      const reject = this.rejectWaiting;
+      this.resolveWaiting = null;
+      this.rejectWaiting = null;
+      reject(new Error('Consumer closed'));
+    }
+  }
+
   async close(): Promise<void> {
+    this.failWaiting();
     await this.consumer.disconnect();
   }
 }
@@ -145,8 +160,10 @@ class KafkaTopicAdmin implements TopicAdmin {
         (g) => g.topic === topic
       )?.partitions.find((p) => p.partition === partition.partition);
 
-      const currentOffset = BigInt(groupPartition?.offset || '0');
       const highWatermark = BigInt(partition.high);
+      // -1 means no committed offset: everything still retained is unconsumed
+      const committed = BigInt(groupPartition?.offset ?? '-1');
+      const currentOffset = committed < 0n ? BigInt(partition.low) : committed;
       totalLag += Number(highWatermark - currentOffset);
     }
     return totalLag;
@@ -186,6 +203,8 @@ export class KafkaBroker implements Broker {
   async createConsumer(options: ConsumerOptions): Promise<Consumer> {
     const consumer = this.kafka.consumer({
       groupId: options.groupId,
+      // Never resurrect a deleted bucket topic through a consumer metadata refresh
+      allowAutoTopicCreation: false,
       ...(options.instanceId && {
         groupInstanceId: options.instanceId,
         sessionTimeout: 60000,
@@ -193,7 +212,7 @@ export class KafkaBroker implements Broker {
       }),
     });
     await consumer.connect();
-    return new KafkaConsumerAdapter(consumer);
+    return new KafkaConsumerAdapter(consumer, options.fromBeginning);
   }
 
   async createProducer(): Promise<Producer> {

@@ -37,6 +37,8 @@ export interface TopicAdmin {
 export interface ConsumerOptions {
   groupId: string;
   instanceId?: string;
+  // Start from the earliest offset when the group has no committed offset
+  fromBeginning?: boolean;
 }
 
 export interface Broker {

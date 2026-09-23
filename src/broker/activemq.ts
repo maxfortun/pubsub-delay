@@ -8,6 +8,7 @@ class ActiveMQConsumer implements Consumer {
   private messageQueue: MessageEnvelope[] = [];
   private pausedQueue: MessageEnvelope[] = [];
   private resolveWaiting: ((env: MessageEnvelope) => void) | null = null;
+  private rejectWaiting: ((err: Error) => void) | null = null;
   private messageIdCounter = 0;
   private pausedTopics = new Set<string>();
 
@@ -75,8 +76,9 @@ class ActiveMQConsumer implements Consumer {
     if (this.messageQueue.length > 0) {
       return this.messageQueue.shift()!;
     }
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.resolveWaiting = resolve;
+      this.rejectWaiting = reject;
     });
   }
 
@@ -119,7 +121,18 @@ class ActiveMQConsumer implements Consumer {
     this.currentMessage = null;
   }
 
+  // Release a pending receive() so callers are not left waiting on a closed consumer
+  private failWaiting(): void {
+    if (this.resolveWaiting && this.rejectWaiting) {
+      const reject = this.rejectWaiting;
+      this.resolveWaiting = null;
+      this.rejectWaiting = null;
+      reject(new Error('Consumer closed'));
+    }
+  }
+
   async close(): Promise<void> {
+    this.failWaiting();
     for (const sub of this.subscriptions) {
       sub.unsubscribe();
     }

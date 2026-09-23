@@ -178,7 +178,7 @@ export class BucketAdvisory extends EventEmitter {
     if (!this.admin) return;
 
     const now = Date.now();
-    const groupId = `${this.config.consumerGroupPrefix}-worker`;
+    const groupId = `${this.config.consumerGroupPrefix}-scheduler`;
 
     for (const [topic, bucket] of this.buckets) {
       const idleTime = now - bucket.lastActivity;
@@ -188,8 +188,9 @@ export class BucketAdvisory extends EventEmitter {
         const lag = await this.admin.getConsumerLag(topic, groupId);
         if (lag === 0) {
           console.log(`Cleaning up idle bucket: ${topic} (idle for ${idleTime}ms)`);
-          await this.admin.deleteTopic(topic);
+          // Unsubscribe everywhere first so no consumer holds the topic during deletion
           this.removeBucket(topic, true);
+          await this.admin.deleteTopic(topic);
         }
       } catch (error) {
         console.error(`Error checking bucket ${topic} for cleanup:`, error);

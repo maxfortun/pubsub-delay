@@ -16,9 +16,11 @@ export class Scheduler {
 
   private subscribedTopics = new Set<string>();
   private pendingTopics = new Set<string>();
+  private removedTopics = new Set<string>();
   private restartGraceTimeout: NodeJS.Timeout | null = null;
   private restartGracePeriodMs = 5000;
   private isRestarting = false;
+  private restartQueued = false;
 
   constructor(broker: Broker, config: DelayServiceConfig, advisory: BucketAdvisory) {
     this.broker = broker;
@@ -66,6 +68,10 @@ export class Scheduler {
       this.onBucketAdded(bucket.topic);
     });
 
+    this.advisory.on('bucket:removed', (topic) => {
+      this.onBucketRemoved(topic);
+    });
+
     this.running = true;
     console.log(`Scheduler started with strategy: ${this.strategy.name}`);
 
@@ -87,6 +93,8 @@ export class Scheduler {
     this.consumer = await this.broker.createConsumer({
       groupId: `${this.config.consumerGroupPrefix}-scheduler`,
       instanceId: this.config.instanceId ? `${this.config.instanceId}-scheduler` : undefined,
+      // A freshly (re)created bucket may already hold messages before we subscribe
+      fromBeginning: true,
     });
 
     if (topics.length > 0) {
@@ -99,26 +107,49 @@ export class Scheduler {
   private onBucketAdded(topic: string): void {
     if (this.subscribedTopics.has(topic)) return;
 
+    this.removedTopics.delete(topic);
     this.pendingTopics.add(topic);
     console.log(`Scheduler: new bucket detected: ${topic}, scheduling restart`);
+    this.scheduleRestart(this.restartGracePeriodMs);
+  }
 
-    if (this.restartGraceTimeout) {
-      clearTimeout(this.restartGraceTimeout);
-    }
+  private onBucketRemoved(topic: string): void {
+    this.pendingTopics.delete(topic);
+    if (!this.subscribedTopics.has(topic)) return;
+
+    this.removedTopics.add(topic);
+    console.log(`Scheduler: bucket removed: ${topic}, scheduling restart`);
+    // Unsubscribe promptly; the topic is being deleted
+    this.scheduleRestart(0);
+  }
+
+  // The grace window starts at the first change and is not extended by later ones,
+  // so a trickle of new buckets cannot postpone the restart indefinitely
+  private scheduleRestart(delayMs: number): void {
+    if (this.restartGraceTimeout && delayMs > 0) return;
+    if (this.restartGraceTimeout) clearTimeout(this.restartGraceTimeout);
 
     this.restartGraceTimeout = setTimeout(() => {
+      this.restartGraceTimeout = null;
       this.restartConsumer();
-    }, this.restartGracePeriodMs);
+    }, delayMs);
   }
 
   private async restartConsumer(): Promise<void> {
-    if (this.isRestarting || this.pendingTopics.size === 0) return;
+    if (this.isRestarting) {
+      this.restartQueued = true;
+      return;
+    }
+    if (this.pendingTopics.size === 0 && this.removedTopics.size === 0) return;
 
     this.isRestarting = true;
     const newTopics = Array.from(this.pendingTopics);
+    const removed = Array.from(this.removedTopics);
     this.pendingTopics.clear();
+    this.removedTopics.clear();
+    removed.forEach((t) => this.subscribedTopics.delete(t));
 
-    console.log(`Scheduler: restarting consumer to add ${newTopics.length} new topics`);
+    console.log(`Scheduler: restarting consumer (+${newTopics.length} / -${removed.length} topics)`);
 
     try {
       if (this.consumer) {
@@ -134,8 +165,13 @@ export class Scheduler {
     } catch (error) {
       console.error('Scheduler: failed to restart consumer', error);
       newTopics.forEach((t) => this.pendingTopics.add(t));
+      removed.forEach((t) => this.removedTopics.add(t));
     } finally {
       this.isRestarting = false;
+      if (this.restartQueued) {
+        this.restartQueued = false;
+        this.restartConsumer();
+      }
     }
   }
 
