@@ -28,6 +28,8 @@ export class BucketAdvisory extends EventEmitter {
   private running = false;
   private syncInterval: NodeJS.Timeout | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  // Removed buckets whose topic is deleted once every scheduler has had time to unsubscribe
+  private pendingDeletion = new Map<string, number>();
 
   constructor(broker: Broker, config: DelayServiceConfig) {
     super();
@@ -185,6 +187,32 @@ export class BucketAdvisory extends EventEmitter {
     const now = Date.now();
     const groupId = `${this.config.consumerGroupPrefix}-scheduler`;
 
+    // Phase 2: delete topics removed at least BUCKET_DELETE_GRACE_MS ago. Deleting while a
+    // scheduler is still (re)joining with the topic in its subscription stalls the join.
+    for (const [topic, removedAt] of this.pendingDeletion) {
+      if (this.buckets.has(topic)) {
+        // Re-registered by new traffic in the meantime: keep it
+        this.pendingDeletion.delete(topic);
+        continue;
+      }
+      if (now - removedAt < this.config.bucketDeleteGraceMs) continue;
+      try {
+        const lag = await this.admin.getConsumerLag(topic, groupId);
+        if (this.buckets.has(topic)) continue;
+        if (lag === 0) {
+          console.log(`Deleting bucket topic: ${topic}`);
+          await this.admin.deleteTopic(topic);
+        } else {
+          console.warn(`Bucket ${topic} received messages after removal (lag ${lag}); re-adding`);
+          this.addBucket(topic, bucketTopicToDuration(this.config.ingestTopic, this.config.bucketSeparator, topic)!, parseDurationToMs(bucketTopicToDuration(this.config.ingestTopic, this.config.bucketSeparator, topic)!), true);
+        }
+        this.pendingDeletion.delete(topic);
+      } catch (error) {
+        console.error(`Error deleting bucket ${topic}:`, error);
+      }
+    }
+
+    // Phase 1: unsubscribe idle, drained buckets everywhere
     for (const [topic, bucket] of this.buckets) {
       const idleTime = now - bucket.lastActivity;
       if (idleTime < this.config.bucketIdleTimeoutMs) continue;
@@ -193,9 +221,9 @@ export class BucketAdvisory extends EventEmitter {
         const lag = await this.admin.getConsumerLag(topic, groupId);
         if (lag === 0) {
           console.log(`Cleaning up idle bucket: ${topic} (idle for ${idleTime}ms)`);
-          // Unsubscribe everywhere first so no consumer holds the topic during deletion
+          // Unsubscribe everywhere first; the topic itself is deleted in a later cycle
           this.removeBucket(topic, true);
-          await this.admin.deleteTopic(topic);
+          this.pendingDeletion.set(topic, now);
         }
       } catch (error) {
         console.error(`Error checking bucket ${topic} for cleanup:`, error);

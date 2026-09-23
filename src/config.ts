@@ -17,6 +17,7 @@ export interface DelayServiceConfig {
   advisorySyncIntervalMs: number;
   bucketIdleTimeoutMs: number;
   cleanupIntervalMs: number;
+  bucketDeleteGraceMs: number;
   precreateBuckets: string[];
   schedulerFetchMaxWaitMs: number;
   consumerRestartGraceMs: number;
@@ -67,6 +68,7 @@ export function loadConfig(): DelayServiceConfig {
     advisorySyncIntervalMs: parseInt(process.env.ADVISORY_SYNC_INTERVAL_MS || '10000', 10),
     bucketIdleTimeoutMs: parseInt(process.env.BUCKET_IDLE_TIMEOUT_MS || '3600000', 10),
     cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '60000', 10),
+    bucketDeleteGraceMs: parseInt(process.env.BUCKET_DELETE_GRACE_MS || '30000', 10),
     precreateBuckets: (process.env.PRECREATE_BUCKETS || '').split(',').filter(Boolean),
     schedulerFetchMaxWaitMs: parseInt(process.env.SCHEDULER_FETCH_MAX_WAIT_MS || '100', 10),
     consumerRestartGraceMs: parseInt(process.env.CONSUMER_RESTART_GRACE_MS || '5000', 10),

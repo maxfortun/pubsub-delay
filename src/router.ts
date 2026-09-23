@@ -60,7 +60,7 @@ export class Router {
         }
         await this.consumer.ack(envelope);
       } catch (error) {
-        console.error('Router error:', error);
+        if (this.running) console.error('Router error:', error);
       }
     }
   }

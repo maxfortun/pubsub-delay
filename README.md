@@ -219,3 +219,11 @@ All settings are environment variables.
 | Variable | Default | Description |
 |---|---|---|
 | `HEALTH_PORT` | `8080` | Serves `/health`, `/ready` and Prometheus `/metrics` |
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md)
+
+**Permitted:** Personal use, research, education, non-profit, evaluation, hobby projects.
+
+**Restricted:** Commercial use requires a separate license. [Contact the author](https://github.com/maxfortun) for commercial licensing.
