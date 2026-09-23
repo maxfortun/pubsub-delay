@@ -82,6 +82,15 @@ async function main() {
     } else if (req.url === '/health') {
       res.statusCode = 200;
       res.end('ok');
+    } else if (req.url === '/stats') {
+      const mem = process.memoryUsage();
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        strategy: config.strategyType,
+        ...scheduler.getStats(),
+        rssMb: Math.round(mem.rss / 1048576),
+        heapUsedMb: Math.round(mem.heapUsed / 1048576),
+      }));
     } else {
       res.statusCode = 404;
       res.end();

@@ -58,7 +58,7 @@ services:
       INGEST_TOPIC: bp-ingest
       CONSUMER_GROUP_PREFIX: bp-delay
       SCHEDULER_STRATEGY: bounded-pool
-      TIMEOUT_POOL_SIZE: "1000"
+      TIMEOUT_POOL_SIZE: "${POOL_SIZE:-200}"
       BUCKET_IDLE_TIMEOUT_MS: "300000"
       CLEANUP_INTERVAL_MS: "60000"
       ADVISORY_SYNC_INTERVAL_MS: "10000"
@@ -115,9 +115,9 @@ services:
       TW_INGEST_TOPIC: tw-ingest
       TW_OUTPUT_TOPIC: tw-output
       # Stress test config - adjust as needed
-      STRESS_DURATION_MINUTES: "60"
-      MESSAGES_PER_SECOND: "100"
-      REPORT_INTERVAL_SECONDS: "30"
+      STRESS_DURATION_MINUTES: "${STRESS_DURATION_MINUTES:-60}"
+      MESSAGES_PER_SECOND: "${MESSAGES_PER_SECOND:-100}"
+      REPORT_INTERVAL_SECONDS: "${REPORT_INTERVAL_SECONDS:-30}"
     depends_on:
       kafka:
         condition: service_healthy
