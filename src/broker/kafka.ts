@@ -205,6 +205,7 @@ export class KafkaBroker implements Broker {
       groupId: options.groupId,
       // Never resurrect a deleted bucket topic through a consumer metadata refresh
       allowAutoTopicCreation: false,
+      ...(options.maxWaitMs !== undefined && { maxWaitTimeInMs: options.maxWaitMs }),
       ...(options.instanceId && {
         groupInstanceId: options.instanceId,
         sessionTimeout: 60000,

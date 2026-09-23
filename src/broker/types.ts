@@ -39,6 +39,8 @@ export interface ConsumerOptions {
   instanceId?: string;
   // Start from the earliest offset when the group has no committed offset
   fromBeginning?: boolean;
+  // Upper bound on how long a fetch may block waiting for data
+  maxWaitMs?: number;
 }
 
 export interface Broker {

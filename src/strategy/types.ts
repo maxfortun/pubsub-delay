@@ -26,4 +26,6 @@ export interface StrategyConfig {
   poolSize: number;
   wheelResolutionMs: number;
   wheelSlots: number;
+  // Resume a paused bucket this long before its deliverAt to absorb fetch latency
+  resumeLeadMs: number;
 }

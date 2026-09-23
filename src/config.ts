@@ -17,6 +17,10 @@ export interface DelayServiceConfig {
   bucketIdleTimeoutMs: number;
   cleanupIntervalMs: number;
   precreateBuckets: string[];
+  schedulerFetchMaxWaitMs: number;
+  consumerRestartGraceMs: number;
+  topicCreateRetries: number;
+  topicCreateRetryBaseMs: number;
   strategyType: StrategyType;
   strategyConfig: StrategyConfig;
 }
@@ -60,11 +64,16 @@ export function loadConfig(): DelayServiceConfig {
     bucketIdleTimeoutMs: parseInt(process.env.BUCKET_IDLE_TIMEOUT_MS || '3600000', 10),
     cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '60000', 10),
     precreateBuckets: (process.env.PRECREATE_BUCKETS || '').split(',').filter(Boolean),
+    schedulerFetchMaxWaitMs: parseInt(process.env.SCHEDULER_FETCH_MAX_WAIT_MS || '100', 10),
+    consumerRestartGraceMs: parseInt(process.env.CONSUMER_RESTART_GRACE_MS || '5000', 10),
+    topicCreateRetries: parseInt(process.env.TOPIC_CREATE_RETRIES || '5', 10),
+    topicCreateRetryBaseMs: parseInt(process.env.TOPIC_CREATE_RETRY_BASE_MS || '1000', 10),
     strategyType,
     strategyConfig: {
       poolSize,
       wheelResolutionMs: parseInt(process.env.WHEEL_RESOLUTION_MS || '100', 10),
       wheelSlots: parseInt(process.env.WHEEL_SLOTS || '600', 10),
+      resumeLeadMs: parseInt(process.env.BUCKET_RESUME_LEAD_MS || '0', 10),
     },
   };
 }

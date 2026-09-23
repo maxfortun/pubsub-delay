@@ -18,14 +18,16 @@ export class Scheduler {
   private pendingTopics = new Set<string>();
   private removedTopics = new Set<string>();
   private restartGraceTimeout: NodeJS.Timeout | null = null;
-  private restartGracePeriodMs = 5000;
+  private restartGracePeriodMs: number;
   private isRestarting = false;
+  private restartDone: Promise<void> = Promise.resolve();
   private restartQueued = false;
 
   constructor(broker: Broker, config: DelayServiceConfig, advisory: BucketAdvisory) {
     this.broker = broker;
     this.config = config;
     this.advisory = advisory;
+    this.restartGracePeriodMs = config.consumerRestartGraceMs;
     this.strategy = createStrategy(config.strategyType, config.strategyConfig);
   }
 
@@ -95,6 +97,9 @@ export class Scheduler {
       instanceId: this.config.instanceId ? `${this.config.instanceId}-scheduler` : undefined,
       // A freshly (re)created bucket may already hold messages before we subscribe
       fromBeginning: true,
+      // A resumed bucket is only fetched once the in-flight long-poll returns;
+      // keep that short so paused buckets fire on time when traffic is quiet
+      maxWaitMs: this.config.schedulerFetchMaxWaitMs,
     });
 
     if (topics.length > 0) {
@@ -143,6 +148,8 @@ export class Scheduler {
     if (this.pendingTopics.size === 0 && this.removedTopics.size === 0) return;
 
     this.isRestarting = true;
+    let signalDone!: () => void;
+    this.restartDone = new Promise((r) => (signalDone = r));
     const newTopics = Array.from(this.pendingTopics);
     const removed = Array.from(this.removedTopics);
     this.pendingTopics.clear();
@@ -168,6 +175,7 @@ export class Scheduler {
       removed.forEach((t) => this.removedTopics.add(t));
     } finally {
       this.isRestarting = false;
+      signalDone();
       if (this.restartQueued) {
         this.restartQueued = false;
         this.restartConsumer();
@@ -190,10 +198,11 @@ export class Scheduler {
 
   private async peekLoop(): Promise<void> {
     while (this.running) {
-      if (!this.consumer || this.isRestarting) {
-        await new Promise((r) => setTimeout(r, 100));
+      if (this.isRestarting) {
+        await this.restartDone;
         continue;
       }
+      if (!this.consumer) return;
 
       try {
         const envelope = await this.consumer.receive();

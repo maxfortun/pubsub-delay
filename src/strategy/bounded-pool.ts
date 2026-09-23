@@ -18,6 +18,7 @@ export class BoundedPoolStrategy implements SchedulerStrategy {
   readonly name = 'BoundedPool';
 
   private poolSize: number;
+  private resumeLeadMs: number;
   private timeoutPool: Map<string, PendingMessage> = new Map();
   private poolIdCounter = 0;
   private bucketCache: Map<string, BucketCacheEntry> = new Map();
@@ -30,6 +31,7 @@ export class BoundedPoolStrategy implements SchedulerStrategy {
 
   constructor(config: StrategyConfig) {
     this.poolSize = config.poolSize;
+    this.resumeLeadMs = config.resumeLeadMs;
   }
 
   setPauseControl(pause: (topics: string[]) => void, resume: (topics: string[]) => void): void {
@@ -94,7 +96,8 @@ export class BoundedPoolStrategy implements SchedulerStrategy {
 
   private cacheAndPause(topic: string, deliverAt: number, destination: string): void {
     const now = Date.now();
-    const resumeInMs = Math.max(0, deliverAt - now);
+    // Waking early is safe: the re-read message still fires on its own timer at deliverAt
+    const resumeInMs = Math.max(0, deliverAt - now - this.resumeLeadMs);
 
     const resumeTimer = setTimeout(() => {
       this.onBucketResume(topic);

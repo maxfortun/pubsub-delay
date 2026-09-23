@@ -23,8 +23,8 @@ export class TimeWheelStrategy implements SchedulerStrategy {
   private nackFn: ((envelope: MessageEnvelope) => Promise<void>) | null = null;
 
   constructor(config: StrategyConfig) {
-    this.resolutionMs = config.wheelResolutionMs || 100;
-    this.slots = config.wheelSlots || 600; // 60 seconds at 100ms resolution
+    this.resolutionMs = config.wheelResolutionMs;
+    this.slots = config.wheelSlots;
     this.wheel = Array.from({ length: this.slots }, () => []);
     this.wheelStartTime = Date.now();
     this.startTicking();
