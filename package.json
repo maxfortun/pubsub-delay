@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "start": "node dist/src/index.js",
+    "dev": "tsx src/index.ts",
+    "test:integration": "docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from integration-test",
+    "test:integration:down": "docker compose -f docker-compose.test.yml down -v"
   },
   "dependencies": {
     "iso8601-duration": "^2.1.2",

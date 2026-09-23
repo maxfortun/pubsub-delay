@@ -1,0 +1,61 @@
+services:
+  kafka:
+    image: bitnami/kafka:3.6
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_DELETE_TOPIC_ENABLE=true
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  pubsub-delay:
+    build: .
+    environment:
+      - BROKER_TYPE=kafka
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_CLIENT_ID=pubsub-delay-test
+      - INGEST_TOPIC=delay-ingest
+      - TIMEOUT_POOL_SIZE=50
+      - BUCKET_IDLE_TIMEOUT_MS=30000
+      - CLEANUP_INTERVAL_MS=5000
+      - ADVISORY_SYNC_INTERVAL_MS=5000
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  integration-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - INGEST_TOPIC=delay-ingest
+      - DESTINATION_TOPIC=delay-output
+    depends_on:
+      kafka:
+        condition: service_healthy
+      pubsub-delay:
+        condition: service_started
+    volumes:
+      - ./test-results:/app/test-results
