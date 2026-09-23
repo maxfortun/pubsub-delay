@@ -1,0 +1,22 @@
+{
+  "name": "pubsub-delay",
+  "version": "1.0.0",
+  "description": "Broker-agnostic message delay service using bucketed topics",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "iso8601-duration": "^2.1.2",
+    "kafkajs": "^2.2.4",
+    "stompit": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
