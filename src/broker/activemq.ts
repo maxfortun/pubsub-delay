@@ -6,8 +6,10 @@ class ActiveMQConsumer implements Consumer {
   private subscriptions: stompit.Client.Subscription[] = [];
   private currentMessage: stompit.Client.Message | null = null;
   private messageQueue: MessageEnvelope[] = [];
+  private pausedQueue: MessageEnvelope[] = [];
   private resolveWaiting: ((env: MessageEnvelope) => void) | null = null;
   private messageIdCounter = 0;
+  private pausedTopics = new Set<string>();
 
   constructor(client: stompit.Client) {
     this.client = client;
@@ -54,7 +56,9 @@ class ActiveMQConsumer implements Consumer {
           message: msg,
         };
 
-        if (this.resolveWaiting) {
+        if (this.pausedTopics.has(topic)) {
+          this.pausedQueue.push(envelope);
+        } else if (this.resolveWaiting) {
           const resolve = this.resolveWaiting;
           this.resolveWaiting = null;
           resolve(envelope);
@@ -74,6 +78,32 @@ class ActiveMQConsumer implements Consumer {
     return new Promise((resolve) => {
       this.resolveWaiting = resolve;
     });
+  }
+
+  pause(topics: string[]): void {
+    for (const topic of topics) {
+      this.pausedTopics.add(topic);
+    }
+  }
+
+  resume(topics: string[]): void {
+    for (const topic of topics) {
+      this.pausedTopics.delete(topic);
+    }
+    // Move any paused messages for resumed topics back to main queue
+    const stillPaused: MessageEnvelope[] = [];
+    for (const env of this.pausedQueue) {
+      if (this.pausedTopics.has(env.topic)) {
+        stillPaused.push(env);
+      } else if (this.resolveWaiting) {
+        const resolve = this.resolveWaiting;
+        this.resolveWaiting = null;
+        resolve(env);
+      } else {
+        this.messageQueue.push(env);
+      }
+    }
+    this.pausedQueue = stillPaused;
   }
 
   async ack(_envelope: MessageEnvelope): Promise<void> {

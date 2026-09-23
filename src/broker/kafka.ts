@@ -76,6 +76,14 @@ class KafkaConsumerAdapter implements Consumer {
     });
   }
 
+  pause(topics: string[]): void {
+    this.consumer.pause(topics.map((topic) => ({ topic })));
+  }
+
+  resume(topics: string[]): void {
+    this.consumer.resume(topics.map((topic) => ({ topic })));
+  }
+
   async close(): Promise<void> {
     await this.consumer.disconnect();
   }

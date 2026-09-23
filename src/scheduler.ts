@@ -21,9 +21,13 @@ export class Scheduler {
   private timeoutPool: Map<string, PendingMessage> = new Map();
   private poolIdCounter = 0;
 
-  // Cache for peeked messages not yet in pool - keyed by message identifier
-  // Stores computed deliverAt to avoid re-parsing when message comes back
-  private peekCache: Map<string, { deliverAt: number; destination: string }> = new Map();
+  // Cache for peeked messages - keyed by bucket topic
+  // Stores computed deliverAt and resume timer handle
+  private bucketCache: Map<string, {
+    deliverAt: number;
+    destination: string;
+    resumeTimer: NodeJS.Timeout;
+  }> = new Map();
 
   private subscribedTopics = new Set<string>();
   private pendingTopics = new Set<string>();
@@ -122,7 +126,10 @@ export class Scheduler {
       }
     }
     this.timeoutPool.clear();
-    this.peekCache.clear();
+    for (const cached of this.bucketCache.values()) {
+      clearTimeout(cached.resumeTimer);
+    }
+    this.bucketCache.clear();
 
     if (this.consumer) await this.consumer.close();
     if (this.producer) await this.producer.close();
@@ -146,13 +153,8 @@ export class Scheduler {
     }
   }
 
-  private getMessageKey(envelope: MessageEnvelope): string {
-    return `${envelope.topic}:${envelope.partition}:${envelope.offset}`;
-  }
-
   private async handleMessage(envelope: MessageEnvelope): Promise<void> {
     const { topic, message } = envelope;
-    const msgKey = this.getMessageKey(envelope);
 
     const isoDuration = bucketTopicToDuration(
       this.config.ingestTopic,
@@ -165,14 +167,16 @@ export class Scheduler {
       return;
     }
 
-    // Check peek cache for pre-computed deliverAt (avoids re-parsing on repeat receives)
+    // Check bucket cache for pre-computed deliverAt (this is a resumed bucket)
     let deliverAt: number;
     let destination: string;
-    const cached = this.peekCache.get(msgKey);
+    const cached = this.bucketCache.get(topic);
 
     if (cached) {
+      // Bucket was paused and just resumed - use cached data
       deliverAt = cached.deliverAt;
       destination = cached.destination;
+      this.bucketCache.delete(topic);
     } else {
       destination = message.headers[this.config.destinationHeader];
       if (!destination) {
@@ -194,21 +198,18 @@ export class Scheduler {
     };
 
     if (this.timeoutPool.size < this.config.timeoutPoolSize) {
-      // Pool has room - add and remove from cache if present
-      this.peekCache.delete(msgKey);
       this.addToPool(pending);
     } else {
       const evictCandidate = this.findLongestWaiting();
       if (evictCandidate && pending.deliverAt < evictCandidate.pending.deliverAt) {
         // New message is sooner - evict oldest, add new to pool
-        await this.evictAndNack(evictCandidate);
-        this.peekCache.delete(msgKey);
+        await this.evictPauseAndNack(evictCandidate);
         this.addToPool(pending);
       } else {
-        // New message is later - cache deliverAt and nack to release to other pods
-        this.peekCache.set(msgKey, { deliverAt, destination });
+        // New message is later - cache, pause bucket, nack
+        this.cacheAndPause(topic, deliverAt, destination);
         await this.consumer!.nack(envelope);
-        console.log(`Scheduler: cached and nack'd message for ${new Date(deliverAt).toISOString()} (pool: ${this.timeoutPool.size}, cached: ${this.peekCache.size})`);
+        console.log(`Scheduler: paused bucket ${topic} until ${new Date(deliverAt).toISOString()} (pool: ${this.timeoutPool.size}, paused: ${this.bucketCache.size})`);
       }
     }
   }
@@ -223,11 +224,33 @@ export class Scheduler {
     }, delayMs);
 
     this.timeoutPool.set(id, pending);
-    console.log(`Scheduler: queued for ${new Date(pending.deliverAt).toISOString()} (pool: ${this.timeoutPool.size}, cached: ${this.peekCache.size})`);
+    console.log(`Scheduler: queued for ${new Date(pending.deliverAt).toISOString()} (pool: ${this.timeoutPool.size}, paused: ${this.bucketCache.size})`);
   }
 
-  private async evictAndNack(entry: { id: string; pending: PendingMessage }): Promise<void> {
+  private cacheAndPause(topic: string, deliverAt: number, destination: string): void {
+    const now = Date.now();
+    const resumeInMs = Math.max(0, deliverAt - now);
+
+    const resumeTimer = setTimeout(() => {
+      this.onBucketResume(topic);
+    }, resumeInMs);
+
+    this.bucketCache.set(topic, { deliverAt, destination, resumeTimer });
+    this.consumer!.pause([topic]);
+  }
+
+  private onBucketResume(topic: string): void {
+    const cached = this.bucketCache.get(topic);
+    if (!cached) return;
+
+    // Don't delete from cache yet - handleMessage will use the cached data
+    this.consumer!.resume([topic]);
+    console.log(`Scheduler: resumed bucket ${topic}`);
+  }
+
+  private async evictPauseAndNack(entry: { id: string; pending: PendingMessage }): Promise<void> {
     const { id, pending } = entry;
+    const topic = pending.envelope.topic;
 
     if (pending.timeoutHandle) {
       clearTimeout(pending.timeoutHandle);
@@ -235,14 +258,11 @@ export class Scheduler {
     pending.timeoutHandle = null;
     this.timeoutPool.delete(id);
 
-    // Cache the computed deliverAt for when we see this message again
-    const msgKey = this.getMessageKey(pending.envelope);
+    // Cache, pause bucket, and nack
     const destination = pending.envelope.message.headers[this.config.destinationHeader];
-    this.peekCache.set(msgKey, { deliverAt: pending.deliverAt, destination });
-
-    // Nack to release offset so other pods can compete
+    this.cacheAndPause(topic, pending.deliverAt, destination);
     await this.consumer!.nack(pending.envelope);
-    console.log(`Scheduler: evicted and nack'd message for ${new Date(pending.deliverAt).toISOString()}`);
+    console.log(`Scheduler: evicted, paused bucket ${topic} until ${new Date(pending.deliverAt).toISOString()}`);
   }
 
   private findLongestWaiting(): { id: string; pending: PendingMessage } | null {
@@ -284,7 +304,7 @@ export class Scheduler {
       await this.producer!.send(destination, forwardMessage);
       await this.consumer!.ack(envelope);
       this.advisory.updateActivity(envelope.topic);
-      console.log(`Scheduler: delivered to ${destination} (pool: ${this.timeoutPool.size}, cached: ${this.peekCache.size})`);
+      console.log(`Scheduler: delivered to ${destination} (pool: ${this.timeoutPool.size}, paused: ${this.bucketCache.size})`);
     } catch (error) {
       console.error('Scheduler: delivery failed', error);
       // On failure, nack to retry later

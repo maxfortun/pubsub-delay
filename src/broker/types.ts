@@ -16,6 +16,8 @@ export interface Consumer {
   receive(): Promise<MessageEnvelope>;
   ack(envelope: MessageEnvelope): Promise<void>;
   nack(envelope: MessageEnvelope): Promise<void>;
+  pause(topics: string[]): void;
+  resume(topics: string[]): void;
   close(): Promise<void>;
 }
 
