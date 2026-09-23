@@ -164,6 +164,11 @@ export class BucketAdvisory extends EventEmitter {
   }
 
   async registerBucket(topic: string, isoDuration: string, delayMs: number): Promise<void> {
+    // Create the topic before announcing it, so schedulers never subscribe to a
+    // missing topic and delivery does not depend on broker auto-creation
+    if (!this.buckets.has(topic) && this.admin && !(await this.admin.topicExists(topic))) {
+      await this.admin.createTopic(topic);
+    }
     this.addBucket(topic, isoDuration, delayMs, true);
   }
 

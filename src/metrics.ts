@@ -38,3 +38,18 @@ new client.Gauge({
     this.set({ strategy, state: 'paused' }, paused);
   },
 });
+
+export const transformTotal = new client.Counter({
+  name: 'pubsub_delay_transform_total',
+  help: 'Transform plugin calls by outcome (forwarded, rejected, failed)',
+  labelNames: ['plugin', 'stage', 'outcome'],
+  registers: [registry],
+});
+
+export const transformDuration = new client.Histogram({
+  name: 'pubsub_delay_transform_duration_ms',
+  help: 'Time spent in a transform plugin call',
+  labelNames: ['plugin', 'stage'],
+  buckets: [1, 2, 5, 10, 20, 50, 100, 250, 500, 1000, 2500, 5000],
+  registers: [registry],
+});

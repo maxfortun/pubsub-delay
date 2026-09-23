@@ -4,6 +4,7 @@ import { parseDurationToMs } from './duration.js';
 import { BucketAdvisory } from './bucket-advisory.js';
 import { createStrategy, SchedulerStrategy } from './strategy/index.js';
 import { deliveryLateness, messagesTotal, setSchedulerStatsSource } from './metrics.js';
+import { Transform, applyTransform } from './transform/index.js';
 
 export class Scheduler {
   private broker: Broker;
@@ -12,6 +13,7 @@ export class Scheduler {
   private consumer: Consumer | null = null;
   private producer: Producer | null = null;
   private strategy: SchedulerStrategy;
+  private transform: Transform;
   private running = false;
 
   private subscribedTopics = new Set<string>();
@@ -22,11 +24,13 @@ export class Scheduler {
   private isRestarting = false;
   private restartDone: Promise<void> = Promise.resolve();
   private restartQueued = false;
+  private restartQueuedAfterGrace = false;
 
-  constructor(broker: Broker, config: DelayServiceConfig, advisory: BucketAdvisory) {
+  constructor(broker: Broker, config: DelayServiceConfig, advisory: BucketAdvisory, transform: Transform) {
     this.broker = broker;
     this.config = config;
     this.advisory = advisory;
+    this.transform = transform;
     this.restartGracePeriodMs = config.consumerRestartGraceMs;
     this.strategy = createStrategy(config.strategyType, config.strategyConfig);
   }
@@ -50,7 +54,22 @@ export class Scheduler {
         headers: forwardHeaders,
         body: message.body,
       };
-      await this.producer!.send(destination, forwardMessage);
+
+      let result;
+      try {
+        result = await applyTransform(this.transform, forwardMessage, { stage: 'post', topic: envelope.topic, destination });
+      } catch (error) {
+        // Throwing makes the strategy nack, so the message is re-read and retried
+        await new Promise((r) => setTimeout(r, this.config.transform.retryBackoffMs));
+        throw error;
+      }
+      if (result.action === 'reject') {
+        console.warn(`Scheduler: message rejected: ${result.reason}`);
+        this.advisory.updateActivity(envelope.topic);
+        return;
+      }
+
+      await this.producer!.send(destination, result.message);
       deliveryLateness.observe({ strategy: strategyName }, Math.max(0, Date.now() - deliverAt));
       messagesTotal.inc({ strategy: strategyName, event: 'delivered' });
       this.advisory.updateActivity(envelope.topic);
@@ -110,9 +129,10 @@ export class Scheduler {
   }
 
   private onBucketAdded(topic: string): void {
+    // Re-added before a queued removal ran: keep the existing subscription
+    if (this.removedTopics.delete(topic) && this.subscribedTopics.has(topic)) return;
     if (this.subscribedTopics.has(topic)) return;
 
-    this.removedTopics.delete(topic);
     this.pendingTopics.add(topic);
     console.log(`Scheduler: new bucket detected: ${topic}, scheduling restart`);
     this.scheduleRestart(this.restartGracePeriodMs);
@@ -120,7 +140,8 @@ export class Scheduler {
 
   private onBucketRemoved(topic: string): void {
     this.pendingTopics.delete(topic);
-    if (!this.subscribedTopics.has(topic)) return;
+    // Mid-restart the topic may be about to be subscribed again, so queue the removal anyway
+    if (!this.subscribedTopics.has(topic) && !this.isRestarting) return;
 
     this.removedTopics.add(topic);
     console.log(`Scheduler: bucket removed: ${topic}, scheduling restart`);
@@ -155,32 +176,61 @@ export class Scheduler {
     this.pendingTopics.clear();
     this.removedTopics.clear();
     removed.forEach((t) => this.subscribedTopics.delete(t));
+    // Drop anything the advisory no longer knows, e.g. removed while a restart was queued
+    const wanted = [...new Set([...this.subscribedTopics, ...newTopics])].filter((t) => this.advisory.getBucket(t));
 
     console.log(`Scheduler: restarting consumer (+${newTopics.length} / -${removed.length} topics)`);
 
     try {
       if (this.consumer) {
         await this.consumer.close();
+        this.consumer = null;
       }
 
-      const allTopics = [...this.subscribedTopics, ...newTopics];
-      await this.startConsumer(allTopics);
+      // Subscribing to a topic that is missing (not yet created, or deleted by cleanup
+      // mid-restart) can stall the group join, so only subscribe to what exists now
+      const existing = new Set(await this.broker.admin().listTopics());
+      const allTopics = wanted.filter((t) => existing.has(t));
+      const missing = wanted.filter((t) => !existing.has(t));
+      this.subscribedTopics.clear();
 
+      await this.withTimeout(this.startConsumer(allTopics), this.config.consumerStartTimeoutMs, 'consumer start');
       this.wirePauseControl();
-
       console.log(`Scheduler: consumer restarted with ${allTopics.length} topics`);
+
+      if (missing.length > 0) {
+        console.log(`Scheduler: ${missing.length} bucket topics not found yet, retrying: ${missing.join(', ')}`);
+        missing.forEach((t) => this.pendingTopics.add(t));
+        this.restartQueuedAfterGrace = true;
+      }
     } catch (error) {
-      console.error('Scheduler: failed to restart consumer', error);
-      newTopics.forEach((t) => this.pendingTopics.add(t));
-      removed.forEach((t) => this.removedTopics.add(t));
+      console.error('Scheduler: failed to restart consumer, retrying', error);
+      if (this.consumer) {
+        await this.consumer.close().catch(() => {});
+        this.consumer = null;
+      }
+      wanted.forEach((t) => this.pendingTopics.add(t));
+      this.subscribedTopics.clear();
+      this.restartQueuedAfterGrace = true;
     } finally {
       this.isRestarting = false;
       signalDone();
       if (this.restartQueued) {
         this.restartQueued = false;
         this.restartConsumer();
+      } else if (this.restartQueuedAfterGrace) {
+        this.scheduleRestart(this.restartGracePeriodMs);
       }
+      this.restartQueuedAfterGrace = false;
     }
+  }
+
+  private withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
   async stop(): Promise<void> {
@@ -202,7 +252,11 @@ export class Scheduler {
         await this.restartDone;
         continue;
       }
-      if (!this.consumer) return;
+      if (!this.consumer) {
+        // Between a failed restart and its retry; wait for the next restart to finish
+        await new Promise((r) => setTimeout(r, this.config.schedulerFetchMaxWaitMs));
+        continue;
+      }
 
       try {
         const envelope = await this.consumer.receive();

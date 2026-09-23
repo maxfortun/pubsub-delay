@@ -58,6 +58,30 @@ services:
       kafka:
         condition: service_healthy
 
+  pubsub-delay-xform:
+    build: .
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ready || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    environment:
+      BROKER_TYPE: kafka
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: pubsub-delay-xform
+      INGEST_TOPIC: xform-ingest
+      CONSUMER_GROUP_PREFIX: pubsub-delay-xform
+      PRECREATE_BUCKETS: "PT2S"
+      TRANSFORM_PLUGIN: http
+      TRANSFORM_PRE_URL: http://integration-test:18081/pre
+      TRANSFORM_POST_URL: http://integration-test:18081/post
+      TRANSFORM_RETRY_BACKOFF_MS: "200"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   integration-test:
     build:
       context: .
@@ -66,10 +90,15 @@ services:
       KAFKA_BROKERS: kafka:9092
       INGEST_TOPIC: delay-ingest
       DESTINATION_TOPIC: delay-output
+      XFORM_INGEST_TOPIC: xform-ingest
+      XFORM_DESTINATION_TOPIC: xform-output
+      TRANSFORM_MOCK_PORT: "18081"
     depends_on:
       kafka:
         condition: service_healthy
       pubsub-delay:
+        condition: service_healthy
+      pubsub-delay-xform:
         condition: service_healthy
     volumes:
       - ./test-results:/app/test-results

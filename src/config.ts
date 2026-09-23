@@ -1,5 +1,6 @@
 import { BrokerConfig } from './broker/types.js';
 import { StrategyType, StrategyConfig } from './strategy/index.js';
+import { TransformConfig, TransformPlugin } from './transform/types.js';
 
 export interface DelayServiceConfig {
   broker: BrokerConfig;
@@ -19,10 +20,13 @@ export interface DelayServiceConfig {
   precreateBuckets: string[];
   schedulerFetchMaxWaitMs: number;
   consumerRestartGraceMs: number;
+  consumerStartTimeoutMs: number;
+  routerRetryBackoffMs: number;
   topicCreateRetries: number;
   topicCreateRetryBaseMs: number;
   strategyType: StrategyType;
   strategyConfig: StrategyConfig;
+  transform: TransformConfig;
 }
 
 export function loadConfig(): DelayServiceConfig {
@@ -66,6 +70,8 @@ export function loadConfig(): DelayServiceConfig {
     precreateBuckets: (process.env.PRECREATE_BUCKETS || '').split(',').filter(Boolean),
     schedulerFetchMaxWaitMs: parseInt(process.env.SCHEDULER_FETCH_MAX_WAIT_MS || '100', 10),
     consumerRestartGraceMs: parseInt(process.env.CONSUMER_RESTART_GRACE_MS || '5000', 10),
+    consumerStartTimeoutMs: parseInt(process.env.CONSUMER_START_TIMEOUT_MS || '30000', 10),
+    routerRetryBackoffMs: parseInt(process.env.ROUTER_RETRY_BACKOFF_MS || '1000', 10),
     topicCreateRetries: parseInt(process.env.TOPIC_CREATE_RETRIES || '5', 10),
     topicCreateRetryBaseMs: parseInt(process.env.TOPIC_CREATE_RETRY_BASE_MS || '1000', 10),
     strategyType,
@@ -74,6 +80,15 @@ export function loadConfig(): DelayServiceConfig {
       wheelResolutionMs: parseInt(process.env.WHEEL_RESOLUTION_MS || '100', 10),
       wheelSlots: parseInt(process.env.WHEEL_SLOTS || '600', 10),
       resumeLeadMs: parseInt(process.env.BUCKET_RESUME_LEAD_MS || '0', 10),
+    },
+    transform: {
+      plugin: (process.env.TRANSFORM_PLUGIN || 'none') as TransformPlugin,
+      retryBackoffMs: parseInt(process.env.TRANSFORM_RETRY_BACKOFF_MS || '1000', 10),
+      http: {
+        preUrl: process.env.TRANSFORM_PRE_URL || undefined,
+        postUrl: process.env.TRANSFORM_POST_URL || undefined,
+        timeoutMs: parseInt(process.env.TRANSFORM_HTTP_TIMEOUT_MS || '5000', 10),
+      },
     },
   };
 }

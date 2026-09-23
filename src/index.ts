@@ -5,6 +5,7 @@ import { BucketAdvisory } from './bucket-advisory.js';
 import { Scheduler } from './scheduler.js';
 import { createServer } from 'http';
 import { registry } from './metrics.js';
+import { createTransform } from './transform/index.js';
 
 async function initializeTopics(broker: ReturnType<typeof createBroker>, config: ReturnType<typeof loadConfig>) {
   const admin = broker.admin();
@@ -45,6 +46,8 @@ async function createTopicWithRetry(admin: ReturnType<ReturnType<typeof createBr
 async function main() {
   const config = loadConfig();
   const broker = createBroker(config.broker);
+  const transform = createTransform(config.transform);
+  console.log(`Transform plugin: ${transform.name}`);
 
   await broker.connect();
   console.log(`Connected to ${config.broker.type} broker`);
@@ -55,10 +58,10 @@ async function main() {
   const advisory = new BucketAdvisory(broker, config);
   await advisory.start();
 
-  const scheduler = new Scheduler(broker, config, advisory);
+  const scheduler = new Scheduler(broker, config, advisory, transform);
   await scheduler.start();
 
-  const router = new Router(broker, config, advisory);
+  const router = new Router(broker, config, advisory, transform);
 
   const shutdown = async () => {
     console.log('\nShutting down...');
