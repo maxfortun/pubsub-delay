@@ -30,10 +30,20 @@ export interface DelayServiceConfig {
   transform: TransformConfig;
 }
 
+// STOMP/JMS headers the broker sets on each delivery
+const DEFAULT_ACTIVEMQ_STRIP_HEADERS = [
+  'destination', 'message-id', 'subscription', 'ack', 'receipt', 'content-length',
+  'expires', 'priority', 'timestamp', 'persistent', 'redelivered', 'original-destination',
+  'JMSXGroupID', 'JMSXGroupSeq', 'JMSXGroupFirstForConsumer', 'JMSXDeliveryCount', 'JMSXUserID',
+].join(',');
+
 export function loadConfig(): DelayServiceConfig {
   const brokerType = (process.env.BROKER_TYPE || 'kafka') as 'kafka' | 'activemq';
   const ingestTopic = process.env.INGEST_TOPIC || 'delay-ingest';
   const separator = process.env.BUCKET_SEPARATOR || '-';
+
+  const advisoryTopic = `${ingestTopic}${separator}advisory`;
+  const jolokiaUrl = process.env.ACTIVEMQ_JOLOKIA_URL;
 
   const broker: BrokerConfig = {
     type: brokerType,
@@ -46,6 +56,18 @@ export function loadConfig(): DelayServiceConfig {
       port: parseInt(process.env.ACTIVEMQ_PORT || '61613', 10),
       login: process.env.ACTIVEMQ_LOGIN,
       passcode: process.env.ACTIVEMQ_PASSCODE,
+      prefetchSize: parseInt(process.env.ACTIVEMQ_PREFETCH || '100', 10),
+      reconnectDelayMs: parseInt(process.env.ACTIVEMQ_RECONNECT_DELAY_MS || '1000', 10),
+      stripHeaders: (process.env.ACTIVEMQ_STRIP_HEADERS || DEFAULT_ACTIVEMQ_STRIP_HEADERS).split(',').filter(Boolean),
+      broadcastTopics: [advisoryTopic],
+      jolokia: jolokiaUrl ? {
+        url: jolokiaUrl,
+        login: process.env.ACTIVEMQ_JOLOKIA_LOGIN || process.env.ACTIVEMQ_LOGIN,
+        password: process.env.ACTIVEMQ_JOLOKIA_PASSWORD || process.env.ACTIVEMQ_PASSCODE,
+        origin: process.env.ACTIVEMQ_JOLOKIA_ORIGIN || 'http://localhost',
+        brokerName: process.env.ACTIVEMQ_BROKER_NAME || undefined,
+        timeoutMs: parseInt(process.env.ACTIVEMQ_JOLOKIA_TIMEOUT_MS || '5000', 10),
+      } : undefined,
     } : undefined,
   };
 
@@ -56,7 +78,7 @@ export function loadConfig(): DelayServiceConfig {
   return {
     broker,
     ingestTopic,
-    advisoryTopic: `${ingestTopic}${separator}advisory`,
+    advisoryTopic,
     bucketSeparator: separator,
     headerPrefix,
     destinationHeader: process.env.DESTINATION_HEADER || `${headerPrefix}DESTINATION`,

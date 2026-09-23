@@ -18,6 +18,9 @@ export interface Consumer {
   nack(envelope: MessageEnvelope): Promise<void>;
   pause(topics: string[]): void;
   resume(topics: string[]): void;
+  // Brokers that can add and drop subscriptions in place implement this, so a bucket
+  // change does not close the consumer and hand its in-flight messages to someone else
+  updateSubscription?(add: string[], remove: string[]): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -62,5 +65,21 @@ export interface BrokerConfig {
     port: number;
     login?: string;
     passcode?: string;
+    // Messages the broker may push to a subscription before they are acked
+    prefetchSize: number;
+    reconnectDelayMs: number;
+    // Frame headers set by the broker per delivery; not carried over when a message is forwarded
+    stripHeaders: string[];
+    // Destinations delivered to every subscriber (/topic/) instead of one (/queue/)
+    broadcastTopics: string[];
+    // Jolokia (web console) is used for admin: listing, sizing and deleting queues
+    jolokia?: {
+      url: string;
+      login?: string;
+      password?: string;
+      origin: string;
+      brokerName?: string;
+      timeoutMs: number;
+    };
   };
 }

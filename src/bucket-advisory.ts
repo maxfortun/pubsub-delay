@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { randomUUID } from 'crypto';
 import { Broker, Consumer, Producer, Message, TopicAdmin } from './broker/types.js';
 import { DelayServiceConfig, isBucketTopic, bucketTopicToDuration } from './config.js';
 import { parseDurationToMs } from './duration.js';
@@ -41,8 +42,10 @@ export class BucketAdvisory extends EventEmitter {
   async start(): Promise<void> {
     this.admin = this.broker.admin();
     this.producer = await this.broker.createProducer();
+    // Every pod must see every event, so each pod consumes in its own group
+    const member = this.config.instanceId ?? randomUUID();
     this.consumer = await this.broker.createConsumer({
-      groupId: `${this.config.consumerGroupPrefix}-advisory`,
+      groupId: `${this.config.consumerGroupPrefix}-advisory-${member}`,
       instanceId: this.config.instanceId ? `${this.config.instanceId}-advisory` : undefined,
     });
 

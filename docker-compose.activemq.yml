@@ -1,0 +1,64 @@
+# ActiveMQ integration tests. No host ports are published, so this stack can run
+# alongside the Kafka ones:
+#   npm run test:integration:activemq && npm run test:integration:activemq:down
+services:
+  activemq:
+    image: apache/activemq-classic:6.1.4
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/61613 && </dev/tcp/localhost/8161'"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  pubsub-delay:
+    build: .
+    restart: unless-stopped
+    # Two pods: buckets are shared queues, the advisory is a broadcast topic
+    deploy:
+      replicas: 2
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ready || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    environment:
+      BROKER_TYPE: activemq
+      ACTIVEMQ_HOST: activemq
+      ACTIVEMQ_PORT: "61613"
+      ACTIVEMQ_LOGIN: admin
+      ACTIVEMQ_PASSCODE: admin
+      ACTIVEMQ_JOLOKIA_URL: http://activemq:8161/api/jolokia
+      INGEST_TOPIC: amq-ingest
+      # Small pool, so the load test pauses, nacks and evicts
+      TIMEOUT_POOL_SIZE: "20"
+      BUCKET_IDLE_TIMEOUT_MS: "15000"
+      CLEANUP_INTERVAL_MS: "3000"
+      BUCKET_DELETE_GRACE_MS: "3000"
+      ADVISORY_SYNC_INTERVAL_MS: "5000"
+      CONSUMER_RESTART_GRACE_MS: "1000"
+      PRECREATE_BUCKETS: "PT1S,PT2S,PT3S,PT4S,PT5S"
+    depends_on:
+      activemq:
+        condition: service_healthy
+
+  integration-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["node", "--test", "--test-reporter=spec", "--test-timeout=180000", "dist/test/integration/activemq.test.js"]
+    environment:
+      ACTIVEMQ_HOST: activemq
+      ACTIVEMQ_PORT: "61613"
+      ACTIVEMQ_LOGIN: admin
+      ACTIVEMQ_PASSCODE: admin
+      ACTIVEMQ_JOLOKIA_URL: http://activemq:8161/api/jolokia
+      INGEST_TOPIC: amq-ingest
+      DESTINATION_TOPIC: amq-output
+      GROUP_DESTINATION_TOPIC: amq-grouped-output
+    depends_on:
+      activemq:
+        condition: service_healthy
+      pubsub-delay:
+        condition: service_healthy

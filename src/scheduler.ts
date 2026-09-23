@@ -182,21 +182,30 @@ export class Scheduler {
     console.log(`Scheduler: restarting consumer (+${newTopics.length} / -${removed.length} topics)`);
 
     try {
-      if (this.consumer) {
-        await this.consumer.close();
-        this.consumer = null;
-      }
-
       // Subscribing to a topic that is missing (not yet created, or deleted by cleanup
-      // mid-restart) can stall the group join, so only subscribe to what exists now
-      const existing = new Set(await this.broker.admin().listTopics());
-      const allTopics = wanted.filter((t) => existing.has(t));
-      const missing = wanted.filter((t) => !existing.has(t));
-      this.subscribedTopics.clear();
+      // mid-restart) can stall a Kafka group join, so only subscribe to what exists now
+      const admin = this.broker.admin();
+      const exists = await Promise.all(wanted.map((t) => admin.topicExists(t)));
+      const allTopics = wanted.filter((_, i) => exists[i]);
+      const missing = wanted.filter((_, i) => !exists[i]);
 
-      await this.withTimeout(this.startConsumer(allTopics), this.config.consumerStartTimeoutMs, 'consumer start');
-      this.wirePauseControl();
-      console.log(`Scheduler: consumer restarted with ${allTopics.length} topics`);
+      if (this.consumer?.updateSubscription) {
+        // Changed in place: in-flight messages stay with this consumer, so none is redelivered
+        const add = allTopics.filter((t) => !this.subscribedTopics.has(t));
+        const drop = [...removed, ...[...this.subscribedTopics].filter((t) => !allTopics.includes(t))];
+        await this.withTimeout(this.consumer.updateSubscription(add, drop), this.config.consumerStartTimeoutMs, 'subscription update');
+        this.subscribedTopics = new Set(allTopics);
+        console.log(`Scheduler: subscription updated, ${allTopics.length} topics`);
+      } else {
+        if (this.consumer) {
+          await this.consumer.close();
+          this.consumer = null;
+        }
+        this.subscribedTopics.clear();
+        await this.withTimeout(this.startConsumer(allTopics), this.config.consumerStartTimeoutMs, 'consumer start');
+        this.wirePauseControl();
+        console.log(`Scheduler: consumer restarted with ${allTopics.length} topics`);
+      }
 
       if (missing.length > 0) {
         console.log(`Scheduler: ${missing.length} bucket topics not found yet, retrying: ${missing.join(', ')}`);
