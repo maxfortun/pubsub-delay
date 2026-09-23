@@ -15,10 +15,27 @@ async function initializeTopics(broker: ReturnType<typeof createBroker>, config:
   }
 
   for (const topic of requiredTopics) {
-    const exists = await admin.topicExists(topic);
-    if (!exists) {
-      console.log(`Creating topic: ${topic}`);
-      await admin.createTopic(topic);
+    await createTopicWithRetry(admin, topic);
+  }
+}
+
+async function createTopicWithRetry(admin: ReturnType<ReturnType<typeof createBroker>['admin']>, topic: string, retries = 5) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const exists = await admin.topicExists(topic);
+      if (!exists) {
+        console.log(`Creating topic: ${topic}`);
+        await admin.createTopic(topic);
+      }
+      return;
+    } catch (error) {
+      if (i < retries - 1) {
+        const delay = 1000 * (i + 1);
+        console.log(`Retry creating topic ${topic} in ${delay}ms (attempt ${i + 1}/${retries})`);
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        throw error;
+      }
     }
   }
 }
