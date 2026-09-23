@@ -10,6 +10,10 @@ declare module 'stompit' {
     host: string;
     port: number;
     connectHeaders: ConnectHeaders;
+    // Send heartbeats this many ms before the negotiated interval
+    heartbeatOutputMargin?: number;
+    // Tolerate incoming heartbeats this many ms late
+    heartbeatDelayMargin?: number;
   }
 
   export class Client {

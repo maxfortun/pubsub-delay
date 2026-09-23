@@ -6,7 +6,9 @@ type JolokiaConfig = NonNullable<ActiveMQConfig['jolokia']>;
 type Connect = () => Promise<stompit.Client>;
 
 // JMSXGroupID is ActiveMQ's message group: every message of a group goes to the same
-// consumer, in order. It is the closest equivalent of a Kafka message key.
+// consumer, in order. It is the closest equivalent of a Kafka message key. The broker
+// applies it on SEND but does not include it in STOMP MESSAGE frames, so the key is
+// read back from config.keyHeader.
 const GROUP_HEADER = 'JMSXGroupID';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -130,10 +132,10 @@ class ActiveMQConsumer implements Consumer {
   private toMessage(frame: stompit.Client.Message, body: Buffer): Message {
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(frame.headers)) {
-      if (!this.config.stripHeaders.includes(k)) headers[k] = String(v);
+      if (!this.config.stripHeaders.includes(k) && k !== this.config.keyHeader) headers[k] = String(v);
     }
-    const group = frame.headers[GROUP_HEADER];
-    return { key: group === undefined ? undefined : String(group), headers, body };
+    const key = frame.headers[this.config.keyHeader] ?? frame.headers[GROUP_HEADER];
+    return { key: key === undefined ? undefined : String(key), headers, body };
   }
 
   private takeReady(): MessageEnvelope | undefined {
@@ -230,7 +232,10 @@ class ActiveMQProducer implements Producer {
       // Set last so a header carried over from the source can never redirect the message
       destination: destinationFor(this.config, topic),
     };
-    if (message.key !== undefined) headers[GROUP_HEADER] = message.key;
+    if (message.key !== undefined) {
+      headers[GROUP_HEADER] = message.key;
+      headers[this.config.keyHeader] = message.key;
+    }
 
     await withReceipt((options) => {
       const frame = client.send(headers, options);
@@ -381,10 +386,12 @@ export class ActiveMQBroker implements Broker {
         port: this.config.port,
         connectHeaders: {
           host: '/',
-          login: this.config.login || 'admin',
-          passcode: this.config.passcode || 'admin',
-          'heart-beat': '5000,5000',
+          login: this.config.login ?? '',
+          passcode: this.config.passcode ?? '',
+          'heart-beat': `${this.config.heartbeatMs},${this.config.heartbeatMs}`,
         },
+        heartbeatOutputMargin: this.config.heartbeatSendMarginMs,
+        heartbeatDelayMargin: this.config.heartbeatReceiveGraceMs,
       },
     ];
 

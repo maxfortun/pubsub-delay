@@ -44,6 +44,10 @@ export function loadConfig(): DelayServiceConfig {
 
   const advisoryTopic = `${ingestTopic}${separator}advisory`;
   const jolokiaUrl = process.env.ACTIVEMQ_JOLOKIA_URL;
+  const activemqLogin = process.env.ACTIVEMQ_LOGIN || 'admin';
+  const activemqPasscode = process.env.ACTIVEMQ_PASSCODE || 'admin';
+
+  const headerPrefix = process.env.HEADER_PREFIX || 'DELAY_';
 
   const broker: BrokerConfig = {
     type: brokerType,
@@ -54,16 +58,20 @@ export function loadConfig(): DelayServiceConfig {
     activemq: brokerType === 'activemq' ? {
       host: process.env.ACTIVEMQ_HOST || 'localhost',
       port: parseInt(process.env.ACTIVEMQ_PORT || '61613', 10),
-      login: process.env.ACTIVEMQ_LOGIN,
-      passcode: process.env.ACTIVEMQ_PASSCODE,
+      login: activemqLogin,
+      passcode: activemqPasscode,
+      keyHeader: process.env.KEY_HEADER || `${headerPrefix}KEY`,
       prefetchSize: parseInt(process.env.ACTIVEMQ_PREFETCH || '100', 10),
       reconnectDelayMs: parseInt(process.env.ACTIVEMQ_RECONNECT_DELAY_MS || '1000', 10),
+      heartbeatMs: parseInt(process.env.ACTIVEMQ_HEARTBEAT_MS || '5000', 10),
+      heartbeatSendMarginMs: parseInt(process.env.ACTIVEMQ_HEARTBEAT_SEND_MARGIN_MS || '1000', 10),
+      heartbeatReceiveGraceMs: parseInt(process.env.ACTIVEMQ_HEARTBEAT_RECEIVE_GRACE_MS || '5000', 10),
       stripHeaders: (process.env.ACTIVEMQ_STRIP_HEADERS || DEFAULT_ACTIVEMQ_STRIP_HEADERS).split(',').filter(Boolean),
       broadcastTopics: [advisoryTopic],
       jolokia: jolokiaUrl ? {
         url: jolokiaUrl,
-        login: process.env.ACTIVEMQ_JOLOKIA_LOGIN || process.env.ACTIVEMQ_LOGIN,
-        password: process.env.ACTIVEMQ_JOLOKIA_PASSWORD || process.env.ACTIVEMQ_PASSCODE,
+        login: process.env.ACTIVEMQ_JOLOKIA_LOGIN || activemqLogin,
+        password: process.env.ACTIVEMQ_JOLOKIA_PASSWORD || activemqPasscode,
         origin: process.env.ACTIVEMQ_JOLOKIA_ORIGIN || 'http://localhost',
         brokerName: process.env.ACTIVEMQ_BROKER_NAME || undefined,
         timeoutMs: parseInt(process.env.ACTIVEMQ_JOLOKIA_TIMEOUT_MS || '5000', 10),
@@ -71,7 +79,6 @@ export function loadConfig(): DelayServiceConfig {
     } : undefined,
   };
 
-  const headerPrefix = process.env.HEADER_PREFIX || 'DELAY_';
   const strategyType = (process.env.SCHEDULER_STRATEGY || 'bounded-pool') as StrategyType;
   const poolSize = parseInt(process.env.TIMEOUT_POOL_SIZE || '100', 10);
 

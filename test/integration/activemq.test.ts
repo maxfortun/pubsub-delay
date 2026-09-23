@@ -11,6 +11,8 @@ const INGEST_TOPIC = process.env.INGEST_TOPIC || 'amq-ingest';
 const DESTINATION_TOPIC = process.env.DESTINATION_TOPIC || 'amq-output';
 const GROUP_DESTINATION_TOPIC = process.env.GROUP_DESTINATION_TOPIC || 'amq-grouped-output';
 const BUCKET_SEPARATOR = '-';
+// STOMP never shows JMSXGroupID on delivery; the service carries the key in this header
+const KEY_HEADER = process.env.KEY_HEADER || 'DELAY_KEY';
 
 interface ReceivedMessage {
   body: string;
@@ -25,14 +27,22 @@ function delay(ms: number): Promise<void> {
 
 function connect(): Promise<stompit.Client> {
   const manager = new stompit.ConnectFailover([
-    { host: HOST, port: PORT, connectHeaders: { host: '/', login: LOGIN, passcode: PASSCODE, 'heart-beat': '5000,5000' } },
+    // Heartbeat early: ActiveMQ drops a connection the moment a heartbeat is late
+    { host: HOST, port: PORT, connectHeaders: { host: '/', login: LOGIN, passcode: PASSCODE, 'heart-beat': '5000,5000' }, heartbeatOutputMargin: 1000, heartbeatDelayMargin: 5000 },
   ]);
   return new Promise((resolve, reject) => manager.connect((error, client) => (error ? reject(error) : resolve(client))));
 }
 
 function send(client: stompit.Client, topic: string, headers: Record<string, string>, body: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const frame = client.send({ destination: `/queue/${topic}`, persistent: 'true', ...headers }, { onReceipt: resolve, onError: reject });
+    // A send on a dead connection neither completes nor fails; fail it here instead of hanging
+    const timer = setTimeout(() => reject(new Error(`send to ${topic} not confirmed`)), 10000);
+    const done = (error?: Error) => {
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const frame = client.send({ destination: `/queue/${topic}`, persistent: 'true', ...headers }, { onReceipt: () => done(), onError: done });
     frame.write(Buffer.from(body));
     frame.end();
   });
@@ -176,16 +186,17 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
     await waitFor('dynamic message', () => byTestId(id).length === 1, 20000);
   });
 
-  it('should preserve JMSXGroupID end to end', async () => {
+  it('should preserve the message key end to end', async () => {
     const id = `groupid-${runId}`;
     await send(producer, INGEST_TOPIC, {
       DELAY_DURATION: 'PT1S',
       DELAY_DESTINATION: DESTINATION_TOPIC,
       TEST_ID: id,
       JMSXGroupID: `order-${runId}`,
+      [KEY_HEADER]: `order-${runId}`,
     }, 'grouped');
     await waitFor('grouped message', () => byTestId(id).length === 1, 10000);
-    assert.strictEqual(byTestId(id)[0].headers['JMSXGroupID'], `order-${runId}`);
+    assert.strictEqual(byTestId(id)[0].headers[KEY_HEADER], `order-${runId}`);
   });
 
   it('should keep each JMSXGroupID on one destination consumer, in order', async () => {
@@ -201,15 +212,17 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
           TEST_ID: `${group}-${seq}`,
           SEQ: String(seq),
           JMSXGroupID: group,
+          [KEY_HEADER]: group,
         }, `${group}-${seq}`);
       }
     }
 
     await waitFor('grouped messages', () => byTestId(prefix, grouped).length === groups.length * perGroup, 30000);
 
+    // Without JMSXGroupID on the delivered messages the two consumers would share each group
     const consumersUsed = new Set<string>();
     for (const group of groups) {
-      const msgs = grouped.filter((m) => m.headers['JMSXGroupID'] === group);
+      const msgs = grouped.filter((m) => m.headers[KEY_HEADER] === group);
       assert.strictEqual(msgs.length, perGroup, `${group}: expected ${perGroup} messages`);
       const owners = new Set(msgs.map((m) => m.consumer));
       assert.strictEqual(owners.size, 1, `${group} split across consumers: ${[...owners].join(', ')}`);

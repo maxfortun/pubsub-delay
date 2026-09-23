@@ -24,10 +24,14 @@ pubsub-delay takes a different approach. Messages stay in the broker until they 
 ![Architecture](docs/diagrams/architecture.jpg)
 
 1. **Ingest.** Producers publish to `delay-ingest` with the `DELAY_DURATION` ([ISO 8601 duration](https://en.wikipedia.org/wiki/ISO_8601#Durations)) and `DELAY_DESTINATION` headers.
-2. **Router.** The router stamps `DELAY_ENQUEUED_AT` with the current time and forwards the message to a **bucket topic** for that exact duration, e.g. `delay-ingest-PT30S`. It creates the bucket on first use.
+2. **Router.** The router runs the optional [pre-transform](#transforms), stamps `DELAY_ENQUEUED_AT` with the current time, and forwards the message to a **bucket topic** for that exact duration, e.g. `delay-ingest-PT30S`. It creates the bucket on first use.
 3. **Bucket advisory.** New and removed buckets are broadcast on `delay-ingest-advisory`, so every replica (re)subscribes its scheduler without polling the broker.
-4. **Scheduler.** The scheduler consumes all bucket topics and delivers each message to `DELAY_DESTINATION` at `deliverAt = DELAY_ENQUEUED_AT + DELAY_DURATION`. *How* it waits is a pluggable strategy: [BoundedPool](#boundedpool) or [TimeWheel](#timewheel).
-5. **Cleanup.** A bucket that has been idle for `BUCKET_IDLE_TIMEOUT_MS`, and whose scheduler consumer lag is 0, is unsubscribed, broadcast as removed, and deleted.
+4. **Scheduler.** The scheduler consumes all bucket topics and delivers each message to `DELAY_DESTINATION` at `deliverAt = DELAY_ENQUEUED_AT + DELAY_DURATION`, after the optional [post-transform](#transforms). *How* it waits is a pluggable strategy: [BoundedPool](#boundedpool) or [TimeWheel](#timewheel).
+5. **Cleanup.** Cleanup runs in two phases, so a topic is never deleted while a scheduler is still subscribed to it:
+   1. A bucket that has been idle for `BUCKET_IDLE_TIMEOUT_MS`, with a scheduler lag of 0, is unsubscribed on every pod and broadcast as removed. The removing pod keeps a *tombstone* for it, so periodic discovery does not re-add a topic that still exists.
+   2. After `BUCKET_DELETE_GRACE_MS`, the removing pod deletes the topic if its lag is still 0. If messages arrived in the meantime, it re-adds the bucket instead.
+
+   New traffic for a removed bucket re-registers it at any point.
 
 ### The key observation: a bucket is already sorted
 
@@ -39,10 +43,10 @@ Both strategies use the same broker-neutral semantics:
 
 | | Kafka | ActiveMQ |
 |---|---|---|
-| **ack** | commit `offset + 1` | acknowledge |
-| **nack** | seek back to the message's offset (nothing is committed) | do not acknowledge |
+| **ack** | commit `offset + 1` | `ACK` (client-individual), confirmed by a receipt |
+| **nack** | seek back to the message's offset (nothing is committed) | do not acknowledge; the consumer hands the message out again locally |
 
-A nack is not a requeue. The message is simply not acknowledged, so the broker hands out the same message again.
+A nack is not a requeue, and nothing is sent back to the broker. The message is simply not acknowledged, and the same message is read again.
 
 ## Scheduling strategies
 
@@ -124,6 +128,76 @@ At every percentile BoundedPool is 2–3× tighter. The short test's backlog fit
 
 **Scaling note.** Kafka parallelism is bounded by partitions. Bucket topics currently have one partition each, so each bucket is consumed by one pod at a time, while different buckets can land on different pods.
 
+## Transforms
+
+A transform plugin can change or reject a message at two points:
+
+* **pre**, in the router, before the message is written to its bucket
+* **post**, in the scheduler, after the delay and before delivery
+
+Typical uses are encrypting or compressing a payload while it waits, a [claim check](https://www.enterpriseintegrationpatterns.com/patterns/messaging/StoreInLibrary.html) that parks a large body elsewhere, or an auth check on the `Authorization` header before a message is accepted.
+
+A transform has three outcomes:
+
+| Outcome | Effect |
+|---|---|
+| **forward** | Continue with the returned message |
+| **reject** | Ack and drop the message (logged and counted) |
+| **error** | Transient: wait `TRANSFORM_RETRY_BACKOFF_MS`, nack, and retry the same message |
+
+`TRANSFORM_PLUGIN` selects the plugin. The default, `none`, forwards every message unchanged.
+
+### HTTP plugin
+
+`TRANSFORM_PLUGIN=http` POSTs each message to `TRANSFORM_PRE_URL` and/or `TRANSFORM_POST_URL`. Both are optional; a stage without a URL passes messages through unchanged.
+
+Request body:
+
+```json
+{
+  "stage": "pre",
+  "topic": "delay-ingest",
+  "destination": "orders",
+  "key": "order-42",
+  "headers": { "DELAY_DURATION": "PT30S", "Authorization": "Bearer ..." },
+  "body": "<base64>"
+}
+```
+
+`destination` is only sent on `post`. The body is base64, so binary payloads (compressed or encrypted) survive JSON.
+
+| Response | Outcome |
+|---|---|
+| `200` with a JSON `{key?, headers?, body?}` | forward the returned message; omitted fields keep their original values |
+| `204` | forward unchanged |
+| `4xx` (except 408 and 429) | reject, e.g. `401` or `403` from an auth check |
+| `5xx`, `408`, `429`, timeout, network error or malformed reply | error, retried |
+
+The request times out after `TRANSFORM_HTTP_TIMEOUT_MS`. A pre-transform may change `DELAY_DURATION` or `DELAY_DESTINATION`; routing uses the headers it returns.
+
+## ActiveMQ
+
+`BROKER_TYPE=activemq` talks [STOMP](https://stomp.github.io/) to ActiveMQ Classic.
+
+* **Buckets are queues.** Every pod consumes each bucket queue, and the broker load-balances messages across them. The advisory is a JMS topic (`/topic/...`), so every pod sees every bucket change.
+* **Subscriptions change in place.** Adding or removing a bucket subscribes or unsubscribes just that queue, so in-flight messages are never handed back to the broker and redelivered.
+* **Pause and nack are local.** A paused bucket's messages wait unacked in the pod, up to `ACTIVEMQ_PREFETCH` per bucket. A nacked message goes back to the front of its bucket.
+* **Sends are persistent and confirmed.** Every send and ack waits for the broker's receipt.
+* **Admin via Jolokia.** Listing, sizing (`QueueSize`) and deleting bucket queues goes through the web console's [Jolokia](https://jolokia.org/) endpoint, `ACTIVEMQ_JOLOKIA_URL`. Without it, queues are created on first use and idle buckets are never deleted.
+
+### Message groups and keys
+
+ActiveMQ [message groups](https://activemq.apache.org/components/classic/documentation/message-groups) (`JMSXGroupID`) are the equivalent of a Kafka message key: all messages of a group go to one consumer, in order. pubsub-delay sets `JMSXGroupID` from the message key on every send, so groups keep their consumer affinity on the bucket queues and on the destination.
+
+ActiveMQ applies `JMSXGroupID` on SEND but does not include it in STOMP MESSAGE frames. The key therefore also travels in an ordinary header, `DELAY_KEY` (`KEY_HEADER`). Producers should set both:
+
+```
+JMSXGroupID: order-42     # group affinity on the ingest queue
+DELAY_KEY:   order-42     # carries the key through the delay
+```
+
+Headers the broker sets per delivery (`destination`, `message-id`, `subscription`, `expires`, `priority` and so on, see `ACTIVEMQ_STRIP_HEADERS`) are dropped rather than forwarded.
+
 ## Metrics
 
 `GET /metrics` on `HEALTH_PORT` serves Prometheus metrics, prefixed `pubsub_delay_`:
@@ -133,6 +207,8 @@ At every percentile BoundedPool is 2–3× tighter. The short test's backlog fit
 | `pubsub_delay_delivery_lateness_ms` | histogram | `strategy`, lateness of actual produce versus `deliverAt` |
 | `pubsub_delay_messages_total` | counter | `strategy`, `event` (`received`, `delivered`, `nacked`, `paused`) |
 | `pubsub_delay_scheduler_messages` | gauge | `strategy`, `state` (`active`, `pending`, `paused`) |
+| `pubsub_delay_transform_total` | counter | `plugin`, `stage`, `outcome` (`forwarded`, `rejected`, `failed`) |
+| `pubsub_delay_transform_duration_ms` | histogram | `plugin`, `stage` |
 | `pubsub_delay_process_*`, `pubsub_delay_nodejs_*` | default | process and event loop metrics |
 
 `monitoring/prometheus.yml` scrapes both strategies in the stress stack, and Prometheus is available on http://localhost:19090.
@@ -140,8 +216,14 @@ At every percentile BoundedPool is 2–3× tighter. The short test's backlog fit
 ## Testing
 
 ```sh
-# Integration tests: delivery, headers, bucket creation and idle cleanup, load
+# Unit tests: HTTP transform plugin, router retry and reject paths
+npm run test:unit
+
+# Kafka integration tests: delivery, headers, bucket creation and idle cleanup, load, transforms
 npm run test:integration && npm run test:integration:down
+
+# ActiveMQ integration tests (two pods): the same, plus JMSXGroupID affinity and ordering
+npm run test:integration:activemq && npm run test:integration:activemq:down
 
 # Side-by-side correctness comparison of both strategies
 docker compose -f docker-compose.compare.yml up --build --abort-on-container-exit --exit-code-from compare-test
@@ -176,7 +258,18 @@ All settings are environment variables.
 | `KAFKA_CLIENT_ID` | `pubsub-delay` | Kafka client id |
 | `ACTIVEMQ_HOST` | `localhost` | STOMP host |
 | `ACTIVEMQ_PORT` | `61613` | STOMP port |
-| `ACTIVEMQ_LOGIN` / `ACTIVEMQ_PASSCODE` | | STOMP credentials |
+| `ACTIVEMQ_LOGIN` / `ACTIVEMQ_PASSCODE` | `admin` / `admin` | STOMP credentials |
+| `ACTIVEMQ_PREFETCH` | `100` | Unacked messages the broker may push per bucket subscription |
+| `ACTIVEMQ_RECONNECT_DELAY_MS` | `1000` | Wait before a consumer reconnects after losing its connection |
+| `ACTIVEMQ_HEARTBEAT_MS` | `5000` | STOMP heartbeat interval, both directions |
+| `ACTIVEMQ_HEARTBEAT_SEND_MARGIN_MS` | `1000` | Send heartbeats this much early; ActiveMQ allows no grace |
+| `ACTIVEMQ_HEARTBEAT_RECEIVE_GRACE_MS` | `5000` | How late broker heartbeats may arrive |
+| `ACTIVEMQ_STRIP_HEADERS` | see `src/config.ts` | Comma-separated per-delivery headers not forwarded |
+| `ACTIVEMQ_JOLOKIA_URL` | | e.g. `http://activemq:8161/api/jolokia`; enables discovery and cleanup |
+| `ACTIVEMQ_JOLOKIA_LOGIN` / `ACTIVEMQ_JOLOKIA_PASSWORD` | STOMP credentials | Jolokia credentials |
+| `ACTIVEMQ_JOLOKIA_ORIGIN` | `http://localhost` | `Origin` header; Jolokia rejects requests without an allowed one |
+| `ACTIVEMQ_BROKER_NAME` | discovered | Broker name in the JMX object names |
+| `ACTIVEMQ_JOLOKIA_TIMEOUT_MS` | `5000` | Jolokia request timeout |
 
 ### Topics and headers
 
@@ -188,6 +281,7 @@ All settings are environment variables.
 | `DESTINATION_HEADER` | `${HEADER_PREFIX}DESTINATION` | Header naming the delivery topic |
 | `DELAY_DURATION_HEADER` | `${HEADER_PREFIX}DURATION` | Header carrying the ISO 8601 delay |
 | `ENQUEUED_AT_HEADER` | `${HEADER_PREFIX}ENQUEUED_AT` | Header stamped with the enqueue time (ms) |
+| `KEY_HEADER` | `${HEADER_PREFIX}KEY` | ActiveMQ: header carrying the message key (see [Message groups](#message-groups-and-keys)) |
 | `CONSUMER_GROUP_PREFIX` | `pubsub-delay` | Prefix for router, scheduler and advisory groups |
 | `INSTANCE_ID` | `$HOSTNAME` | Static group membership id |
 
@@ -196,7 +290,8 @@ All settings are environment variables.
 | Variable | Default | Description |
 |---|---|---|
 | `PRECREATE_BUCKETS` | | Comma-separated durations to create at startup, e.g. `PT1S,PT5M` |
-| `BUCKET_IDLE_TIMEOUT_MS` | `3600000` | Idle time after which an empty bucket topic is deleted |
+| `BUCKET_IDLE_TIMEOUT_MS` | `3600000` | Idle time after which an empty bucket is unsubscribed everywhere |
+| `BUCKET_DELETE_GRACE_MS` | `30000` | Wait between unsubscribing an idle bucket and deleting its topic |
 | `CLEANUP_INTERVAL_MS` | `60000` | How often idle buckets are checked |
 | `ADVISORY_SYNC_INTERVAL_MS` | `10000` | How often bucket topics are rediscovered from the broker |
 | `TOPIC_CREATE_RETRIES` | `5` | Attempts to create required topics at startup |
@@ -208,11 +303,28 @@ All settings are environment variables.
 |---|---|---|
 | `SCHEDULER_STRATEGY` | `bounded-pool` | `bounded-pool` or `time-wheel` |
 | `SCHEDULER_FETCH_MAX_WAIT_MS` | `100` | Max broker long-poll; bounds how late a resumed bucket is fetched |
-| `CONSUMER_RESTART_GRACE_MS` | `5000` | Window for batching new buckets into one consumer restart |
+| `CONSUMER_RESTART_GRACE_MS` | `5000` | Window for batching bucket changes into one resubscribe |
+| `CONSUMER_START_TIMEOUT_MS` | `30000` | Give up on a (re)subscribe that hangs, and retry |
 | `TIMEOUT_POOL_SIZE` | `100` | BoundedPool: max messages held with live timers |
 | `BUCKET_RESUME_LEAD_MS` | `0` | BoundedPool: resume a paused bucket this early to absorb fetch latency |
 | `WHEEL_RESOLUTION_MS` | `100` | TimeWheel: tick length |
 | `WHEEL_SLOTS` | `600` | TimeWheel: slots per revolution (span = resolution × slots) |
+
+### Router
+
+| Variable | Default | Description |
+|---|---|---|
+| `ROUTER_RETRY_BACKOFF_MS` | `1000` | Wait before retrying a message the broker failed to accept |
+
+### Transforms
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRANSFORM_PLUGIN` | `none` | `none` or `http` |
+| `TRANSFORM_RETRY_BACKOFF_MS` | `1000` | Wait before retrying after a transform error |
+| `TRANSFORM_PRE_URL` | | HTTP plugin: URL for the pre stage |
+| `TRANSFORM_POST_URL` | | HTTP plugin: URL for the post stage |
+| `TRANSFORM_HTTP_TIMEOUT_MS` | `5000` | HTTP plugin: request timeout |
 
 ### Service
 

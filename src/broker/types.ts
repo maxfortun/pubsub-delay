@@ -65,9 +65,17 @@ export interface BrokerConfig {
     port: number;
     login?: string;
     passcode?: string;
+    // STOMP clients can set JMSXGroupID but never see it on delivery, so the key also
+    // travels in this ordinary header
+    keyHeader: string;
     // Messages the broker may push to a subscription before they are acked
     prefetchSize: number;
     reconnectDelayMs: number;
+    heartbeatMs: number;
+    // Heartbeats are sent this much sooner than promised; ActiveMQ allows no grace
+    heartbeatSendMarginMs: number;
+    // How late the broker's heartbeats may arrive before the connection is dropped
+    heartbeatReceiveGraceMs: number;
     // Frame headers set by the broker per delivery; not carried over when a message is forwarded
     stripHeaders: string[];
     // Destinations delivered to every subscriber (/topic/) instead of one (/queue/)
