@@ -84,10 +84,9 @@ class ActiveMQConsumer implements Consumer {
   }
 
   async nack(_envelope: MessageEnvelope): Promise<void> {
-    if (this.currentMessage) {
-      this.client.nack(this.currentMessage);
-      this.currentMessage = null;
-    }
+    // Don't ack - message will be redelivered on session end/timeout
+    // For immediate redelivery, would need STOMP NACK frame extension
+    this.currentMessage = null;
   }
 
   async close(): Promise<void> {

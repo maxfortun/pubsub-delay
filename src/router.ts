@@ -30,9 +30,9 @@ export class Router {
 
     while (this.running) {
       try {
-        const { message } = await this.consumer.receive();
-        await this.routeMessage(message);
-        await this.consumer.commit();
+        const envelope = await this.consumer.receive();
+        await this.routeMessage(envelope.message);
+        await this.consumer.ack(envelope);
       } catch (error) {
         console.error('Router error:', error);
       }
