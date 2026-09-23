@@ -24,7 +24,7 @@ export class BoundedPoolStrategy implements SchedulerStrategy {
 
   private pauseFn: ((topics: string[]) => void) | null = null;
   private resumeFn: ((topics: string[]) => void) | null = null;
-  private deliverFn: ((envelope: MessageEnvelope, destination: string) => Promise<void>) | null = null;
+  private deliverFn: ((envelope: MessageEnvelope, destination: string, deliverAt: number) => Promise<void>) | null = null;
   private ackFn: ((envelope: MessageEnvelope) => Promise<void>) | null = null;
   private nackFn: ((envelope: MessageEnvelope) => Promise<void>) | null = null;
 
@@ -37,7 +37,7 @@ export class BoundedPoolStrategy implements SchedulerStrategy {
     this.resumeFn = resume;
   }
 
-  setDeliveryHandler(deliver: (envelope: MessageEnvelope, destination: string) => Promise<void>): void {
+  setDeliveryHandler(deliver: (envelope: MessageEnvelope, destination: string, deliverAt: number) => Promise<void>): void {
     this.deliverFn = deliver;
   }
 
@@ -146,7 +146,7 @@ export class BoundedPoolStrategy implements SchedulerStrategy {
     this.timeoutPool.delete(id);
 
     try {
-      await this.deliverFn!(pending.envelope, pending.destination);
+      await this.deliverFn!(pending.envelope, pending.destination, pending.deliverAt);
       await this.ackFn!(pending.envelope);
       console.log(`BoundedPool: delivered (active: ${this.timeoutPool.size}, paused: ${this.bucketCache.size})`);
     } catch (error) {

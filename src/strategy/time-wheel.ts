@@ -18,7 +18,7 @@ export class TimeWheelStrategy implements SchedulerStrategy {
   private tickTimer: NodeJS.Timeout | null = null;
   private overflow: WheelEntry[] = [];
 
-  private deliverFn: ((envelope: MessageEnvelope, destination: string) => Promise<void>) | null = null;
+  private deliverFn: ((envelope: MessageEnvelope, destination: string, deliverAt: number) => Promise<void>) | null = null;
   private ackFn: ((envelope: MessageEnvelope) => Promise<void>) | null = null;
   private nackFn: ((envelope: MessageEnvelope) => Promise<void>) | null = null;
 
@@ -34,7 +34,7 @@ export class TimeWheelStrategy implements SchedulerStrategy {
     // TimeWheel doesn't use pause/resume - it holds all messages in memory
   }
 
-  setDeliveryHandler(deliver: (envelope: MessageEnvelope, destination: string) => Promise<void>): void {
+  setDeliveryHandler(deliver: (envelope: MessageEnvelope, destination: string, deliverAt: number) => Promise<void>): void {
     this.deliverFn = deliver;
   }
 
@@ -122,7 +122,7 @@ export class TimeWheelStrategy implements SchedulerStrategy {
 
   private async deliverEntry(entry: WheelEntry): Promise<void> {
     try {
-      await this.deliverFn!(entry.envelope, entry.destination);
+      await this.deliverFn!(entry.envelope, entry.destination, entry.deliverAt);
       await this.ackFn!(entry.envelope);
       console.log(`TimeWheel: delivered (wheel: ${this.getWheelCount()}, overflow: ${this.overflow.length})`);
     } catch (error) {

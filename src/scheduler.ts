@@ -3,6 +3,7 @@ import { DelayServiceConfig, bucketTopicToDuration } from './config.js';
 import { parseDurationToMs } from './duration.js';
 import { BucketAdvisory } from './bucket-advisory.js';
 import { createStrategy, SchedulerStrategy } from './strategy/index.js';
+import { deliveryLateness, messagesTotal, setSchedulerStatsSource } from './metrics.js';
 
 export class Scheduler {
   private broker: Broker;
@@ -34,13 +35,10 @@ export class Scheduler {
 
     await this.startConsumer(topics);
 
-    // Wire up strategy callbacks
-    this.strategy.setPauseControl(
-      (t) => this.consumer?.pause(t),
-      (t) => this.consumer?.resume(t)
-    );
+    const strategyName = this.strategy.name;
+    this.wirePauseControl();
 
-    this.strategy.setDeliveryHandler(async (envelope, destination) => {
+    this.strategy.setDeliveryHandler(async (envelope, destination, deliverAt) => {
       const { message } = envelope;
       const { [this.config.enqueuedAtHeader]: _, ...forwardHeaders } = message.headers;
       const forwardMessage: Message = {
@@ -49,13 +47,20 @@ export class Scheduler {
         body: message.body,
       };
       await this.producer!.send(destination, forwardMessage);
+      deliveryLateness.observe({ strategy: strategyName }, Math.max(0, Date.now() - deliverAt));
+      messagesTotal.inc({ strategy: strategyName, event: 'delivered' });
       this.advisory.updateActivity(envelope.topic);
     });
 
     this.strategy.setAckHandler(
       (envelope) => this.consumer!.ack(envelope),
-      (envelope) => this.consumer!.nack(envelope)
+      (envelope) => {
+        messagesTotal.inc({ strategy: strategyName, event: 'nacked' });
+        return this.consumer!.nack(envelope);
+      }
     );
+
+    setSchedulerStatsSource(() => ({ strategy: strategyName, ...this.strategy.getStats() }));
 
     this.advisory.on('bucket:added', (bucket) => {
       this.onBucketAdded(bucket.topic);
@@ -65,6 +70,17 @@ export class Scheduler {
     console.log(`Scheduler started with strategy: ${this.strategy.name}`);
 
     this.peekLoop();
+  }
+
+  private wirePauseControl(): void {
+    const strategyName = this.strategy.name;
+    this.strategy.setPauseControl(
+      (t) => {
+        messagesTotal.inc({ strategy: strategyName, event: 'paused' }, t.length);
+        this.consumer?.pause(t);
+      },
+      (t) => this.consumer?.resume(t)
+    );
   }
 
   private async startConsumer(topics: string[]): Promise<void> {
@@ -112,11 +128,7 @@ export class Scheduler {
       const allTopics = [...this.subscribedTopics, ...newTopics];
       await this.startConsumer(allTopics);
 
-      // Re-wire pause control after consumer restart
-      this.strategy.setPauseControl(
-        (t) => this.consumer?.pause(t),
-        (t) => this.consumer?.resume(t)
-      );
+      this.wirePauseControl();
 
       console.log(`Scheduler: consumer restarted with ${allTopics.length} topics`);
     } catch (error) {
@@ -184,10 +196,7 @@ export class Scheduler {
     const delayMs = parseDurationToMs(isoDuration);
     const deliverAt = enqueuedAt + delayMs;
 
+    messagesTotal.inc({ strategy: this.strategy.name, event: 'received' });
     await this.strategy.onMessage(envelope, deliverAt, destination);
-  }
-
-  getStats() {
-    return this.strategy.getStats();
   }
 }

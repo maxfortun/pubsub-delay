@@ -38,6 +38,13 @@ services:
       kafka:
         condition: service_healthy
 
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
   bounded-pool:
     build: .
     restart: unless-stopped

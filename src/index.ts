@@ -4,6 +4,7 @@ import { Router } from './router.js';
 import { BucketAdvisory } from './bucket-advisory.js';
 import { Scheduler } from './scheduler.js';
 import { createServer } from 'http';
+import { registry } from './metrics.js';
 
 async function initializeTopics(broker: ReturnType<typeof createBroker>, config: ReturnType<typeof loadConfig>) {
   const admin = broker.admin();
@@ -82,15 +83,11 @@ async function main() {
     } else if (req.url === '/health') {
       res.statusCode = 200;
       res.end('ok');
-    } else if (req.url === '/stats') {
-      const mem = process.memoryUsage();
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({
-        strategy: config.strategyType,
-        ...scheduler.getStats(),
-        rssMb: Math.round(mem.rss / 1048576),
-        heapUsedMb: Math.round(mem.heapUsed / 1048576),
-      }));
+    } else if (req.url === '/metrics') {
+      registry.metrics().then((body) => {
+        res.setHeader('Content-Type', registry.contentType);
+        res.end(body);
+      });
     } else {
       res.statusCode = 404;
       res.end();

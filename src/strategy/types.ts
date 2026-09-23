@@ -7,7 +7,7 @@ export interface SchedulerStrategy {
 
   setPauseControl(pause: (topics: string[]) => void, resume: (topics: string[]) => void): void;
 
-  setDeliveryHandler(deliver: (envelope: MessageEnvelope, destination: string) => Promise<void>): void;
+  setDeliveryHandler(deliver: (envelope: MessageEnvelope, destination: string, deliverAt: number) => Promise<void>): void;
 
   setAckHandler(ack: (envelope: MessageEnvelope) => Promise<void>, nack: (envelope: MessageEnvelope) => Promise<void>): void;
 

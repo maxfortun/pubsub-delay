@@ -19,13 +19,13 @@ const TARGETS: Target[] = [
     name: 'BoundedPool',
     ingest: process.env.BP_INGEST_TOPIC || 'bp-ingest',
     output: process.env.BP_OUTPUT_TOPIC || 'bp-output',
-    statsUrl: process.env.BP_STATS_URL || 'http://bounded-pool:8080/stats',
+    statsUrl: process.env.BP_METRICS_URL || 'http://bounded-pool:8080/metrics',
   },
   {
     name: 'TimeWheel',
     ingest: process.env.TW_INGEST_TOPIC || 'tw-ingest',
     output: process.env.TW_OUTPUT_TOPIC || 'tw-output',
-    statsUrl: process.env.TW_STATS_URL || 'http://time-wheel:8080/stats',
+    statsUrl: process.env.TW_METRICS_URL || 'http://time-wheel:8080/metrics',
   },
 ];
 
@@ -80,11 +80,42 @@ function summarize(s: Stats) {
   };
 }
 
+function parsePrometheus(text: string): Map<string, number> {
+  const values = new Map<string, number>();
+  for (const line of text.split('\n')) {
+    if (!line || line.startsWith('#')) continue;
+    const sep = line.lastIndexOf(' ');
+    values.set(line.slice(0, sep), Number(line.slice(sep + 1)));
+  }
+  return values;
+}
+
+function sumMatching(m: Map<string, number>, prefix: string, labelFragment = ''): number {
+  let total = 0;
+  for (const [k, v] of m) {
+    if (k.startsWith(prefix) && k.includes(labelFragment)) total += v;
+  }
+  return total;
+}
+
 async function pollServiceStats(target: Target, s: Stats): Promise<void> {
   try {
-    const res = await fetch(target.statsUrl);
-    s.service = (await res.json()) as Record<string, unknown>;
-    s.peakRssMb = Math.max(s.peakRssMb, Number(s.service.rssMb) || 0);
+    const m = parsePrometheus(await (await fetch(target.statsUrl)).text());
+    const rssMb = Math.round((m.get('pubsub_delay_process_resident_memory_bytes') ?? 0) / 1048576);
+    const latenessCount = sumMatching(m, 'pubsub_delay_delivery_lateness_ms_count');
+    const latenessSum = sumMatching(m, 'pubsub_delay_delivery_lateness_ms_sum');
+    s.service = {
+      rssMb,
+      eventLoopLagP99Ms: +((m.get('pubsub_delay_nodejs_eventloop_lag_p99_seconds') ?? 0) * 1000).toFixed(1),
+      serviceLatenessAvgMs: latenessCount > 0 ? +(latenessSum / latenessCount).toFixed(1) : 0,
+      active: sumMatching(m, 'pubsub_delay_scheduler_messages', 'state="active"'),
+      pending: sumMatching(m, 'pubsub_delay_scheduler_messages', 'state="pending"'),
+      pausedBuckets: sumMatching(m, 'pubsub_delay_scheduler_messages', 'state="paused"'),
+      received: sumMatching(m, 'pubsub_delay_messages_total', 'event="received"'),
+      nacked: sumMatching(m, 'pubsub_delay_messages_total', 'event="nacked"'),
+      pauses: sumMatching(m, 'pubsub_delay_messages_total', 'event="paused"'),
+    };
+    s.peakRssMb = Math.max(s.peakRssMb, rssMb);
   } catch {
     s.service = null;
   }
