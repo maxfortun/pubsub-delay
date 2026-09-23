@@ -109,8 +109,8 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
     const sentMessages: SentMessage[] = [];
     const toleranceMs = 150; // Allow 150ms variance
 
-    // Send identical messages to both strategies
-    const delays = ['PT1S', 'PT2S', 'PT3S'];
+    // Send identical messages to both strategies (10 messages each for better stats)
+    const delays = ['PT1S', 'PT2S', 'PT3S', 'PT1S', 'PT2S', 'PT3S', 'PT1S', 'PT2S', 'PT3S', 'PT1S'];
     const batchId = Date.now();
 
     for (let i = 0; i < delays.length; i++) {
@@ -118,8 +118,9 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
       const delayMs = parseIsoDuration(duration);
       const sentAt = Date.now();
 
-      // Send to BoundedPool
+      // Send to BoundedPool - use ENQUEUED_AT header for precise measurement
       const bpId = `bp-${batchId}-${i}`;
+      const bpEnqueuedAt = Date.now();
       await producer.send({
         topic: BP_INGEST,
         messages: [{
@@ -128,14 +129,16 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
           headers: {
             DELAY_DURATION: duration,
             DELAY_DESTINATION: BP_OUTPUT,
+            DELAY_ENQUEUED_AT: bpEnqueuedAt.toString(),
             TEST_ID: bpId,
           },
         }],
       });
-      sentMessages.push({ id: bpId, delayMs, sentAt, strategy: 'BoundedPool' });
+      sentMessages.push({ id: bpId, delayMs, sentAt: bpEnqueuedAt, strategy: 'BoundedPool' });
 
       // Send to TimeWheel
       const twId = `tw-${batchId}-${i}`;
+      const twEnqueuedAt = Date.now();
       await producer.send({
         topic: TW_INGEST,
         messages: [{
@@ -144,18 +147,19 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
           headers: {
             DELAY_DURATION: duration,
             DELAY_DESTINATION: TW_OUTPUT,
+            DELAY_ENQUEUED_AT: twEnqueuedAt.toString(),
             TEST_ID: twId,
           },
         }],
       });
-      sentMessages.push({ id: twId, delayMs, sentAt, strategy: 'TimeWheel' });
+      sentMessages.push({ id: twId, delayMs, sentAt: twEnqueuedAt, strategy: 'TimeWheel' });
     }
 
     console.log(`Sent ${sentMessages.length} messages (${delays.length} per strategy)`);
 
-    // Wait for all messages
+    // Wait for all messages (max delay + buffer for processing)
     const maxDelayMs = Math.max(...sentMessages.map((m) => m.delayMs));
-    await delay(maxDelayMs + 3000);
+    await delay(maxDelayMs + 5000);
 
     // Analyze results per strategy
     const results: Record<string, { avgError: number; maxError: number; count: number }> = {};
@@ -213,6 +217,7 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
 
       const bpId = `bp-load-${batchId}-${i}`;
       const twId = `tw-load-${batchId}-${i}`;
+      const enqueuedAt = Date.now();
 
       await Promise.all([
         producer.send({
@@ -223,6 +228,7 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
             headers: {
               DELAY_DURATION: duration,
               DELAY_DESTINATION: BP_OUTPUT,
+              DELAY_ENQUEUED_AT: enqueuedAt.toString(),
               TEST_ID: bpId,
             },
           }],
@@ -235,14 +241,15 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
             headers: {
               DELAY_DURATION: duration,
               DELAY_DESTINATION: TW_OUTPUT,
+              DELAY_ENQUEUED_AT: enqueuedAt.toString(),
               TEST_ID: twId,
             },
           }],
         }),
       ]);
 
-      sentMessages.push({ id: bpId, delayMs, sentAt, strategy: 'BoundedPool' });
-      sentMessages.push({ id: twId, delayMs, sentAt, strategy: 'TimeWheel' });
+      sentMessages.push({ id: bpId, delayMs, sentAt: enqueuedAt, strategy: 'BoundedPool' });
+      sentMessages.push({ id: twId, delayMs, sentAt: enqueuedAt, strategy: 'TimeWheel' });
     }
 
     const sendEnd = Date.now();

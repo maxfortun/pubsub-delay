@@ -89,7 +89,7 @@ export class BoundedPoolStrategy implements SchedulerStrategy {
     }, delayMs);
 
     this.timeoutPool.set(id, pending);
-    console.log(`BoundedPool: queued for ${new Date(pending.deliverAt).toISOString()} (active: ${this.timeoutPool.size}, paused: ${this.bucketCache.size})`);
+    console.log(`BoundedPool: queued ${delayMs}ms (active: ${this.timeoutPool.size}, paused: ${this.bucketCache.size})`);
   }
 
   private cacheAndPause(topic: string, deliverAt: number, destination: string): void {
