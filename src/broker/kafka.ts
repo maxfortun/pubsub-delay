@@ -5,15 +5,12 @@ import {
   Admin as KafkaAdmin,
   EachMessagePayload,
 } from 'kafkajs';
-import { Broker, Consumer, Producer, Message, BrokerConfig, TopicAdmin } from './types.js';
+import { Broker, Consumer, Producer, Message, MessageEnvelope, BrokerConfig, TopicAdmin, ConsumerOptions } from './types.js';
 
 class KafkaConsumerAdapter implements Consumer {
   private consumer: KafkaConsumer;
-  private messageQueue: { topic: string; message: Message }[] = [];
-  private resolveWaiting: ((msg: { topic: string; message: Message }) => void) | null = null;
-  private currentOffset: string | null = null;
-  private currentTopic: string | null = null;
-  private currentPartition: number | null = null;
+  private messageQueue: MessageEnvelope[] = [];
+  private resolveWaiting: ((env: MessageEnvelope) => void) | null = null;
 
   constructor(consumer: KafkaConsumer) {
     this.consumer = consumer;
@@ -33,23 +30,26 @@ class KafkaConsumerAdapter implements Consumer {
           ),
           body: payload.message.value || Buffer.alloc(0),
         };
-        this.currentOffset = payload.message.offset;
-        this.currentTopic = payload.topic;
-        this.currentPartition = payload.partition;
 
-        const item = { topic: payload.topic, message: msg };
+        const envelope: MessageEnvelope = {
+          topic: payload.topic,
+          partition: payload.partition,
+          offset: payload.message.offset,
+          message: msg,
+        };
+
         if (this.resolveWaiting) {
           const resolve = this.resolveWaiting;
           this.resolveWaiting = null;
-          resolve(item);
+          resolve(envelope);
         } else {
-          this.messageQueue.push(item);
+          this.messageQueue.push(envelope);
         }
       },
     });
   }
 
-  async receive(): Promise<{ topic: string; message: Message }> {
+  async receive(): Promise<MessageEnvelope> {
     if (this.messageQueue.length > 0) {
       return this.messageQueue.shift()!;
     }
@@ -58,16 +58,22 @@ class KafkaConsumerAdapter implements Consumer {
     });
   }
 
-  async commit(): Promise<void> {
-    if (this.currentTopic && this.currentPartition !== null && this.currentOffset) {
-      await this.consumer.commitOffsets([
-        {
-          topic: this.currentTopic,
-          partition: this.currentPartition,
-          offset: (BigInt(this.currentOffset) + 1n).toString(),
-        },
-      ]);
-    }
+  async ack(envelope: MessageEnvelope): Promise<void> {
+    await this.consumer.commitOffsets([
+      {
+        topic: envelope.topic,
+        partition: envelope.partition,
+        offset: (BigInt(envelope.offset) + 1n).toString(),
+      },
+    ]);
+  }
+
+  async nack(envelope: MessageEnvelope): Promise<void> {
+    this.consumer.seek({
+      topic: envelope.topic,
+      partition: envelope.partition,
+      offset: envelope.offset,
+    });
   }
 
   async close(): Promise<void> {
@@ -169,8 +175,15 @@ export class KafkaBroker implements Broker {
     }
   }
 
-  async createConsumer(groupId: string): Promise<Consumer> {
-    const consumer = this.kafka.consumer({ groupId });
+  async createConsumer(options: ConsumerOptions): Promise<Consumer> {
+    const consumer = this.kafka.consumer({
+      groupId: options.groupId,
+      ...(options.instanceId && {
+        groupInstanceId: options.instanceId,
+        sessionTimeout: 60000,
+        rebalanceTimeout: 120000,
+      }),
+    });
     await consumer.connect();
     return new KafkaConsumerAdapter(consumer);
   }

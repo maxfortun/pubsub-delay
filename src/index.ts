@@ -2,7 +2,7 @@ import { createBroker } from './broker/index.js';
 import { loadConfig } from './config.js';
 import { Router } from './router.js';
 import { BucketAdvisory } from './bucket-advisory.js';
-import { WorkerPool } from './worker-pool.js';
+import { Scheduler } from './scheduler.js';
 
 async function main() {
   const config = loadConfig();
@@ -14,15 +14,15 @@ async function main() {
   const advisory = new BucketAdvisory(broker, config);
   await advisory.start();
 
-  const pool = new WorkerPool(broker, config, advisory);
-  await pool.start();
+  const scheduler = new Scheduler(broker, config, advisory);
+  await scheduler.start();
 
   const router = new Router(broker, config, advisory);
 
   const shutdown = async () => {
     console.log('\nShutting down...');
     await router.stop();
-    await pool.stop();
+    await scheduler.stop();
     await advisory.stop();
     await broker.disconnect();
     process.exit(0);

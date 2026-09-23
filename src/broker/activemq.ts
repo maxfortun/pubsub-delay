@@ -1,20 +1,19 @@
 import stompit from 'stompit';
-import { Broker, Consumer, Producer, Message, BrokerConfig, TopicAdmin } from './types.js';
+import { Broker, Consumer, Producer, Message, MessageEnvelope, BrokerConfig, TopicAdmin, ConsumerOptions } from './types.js';
 
 class ActiveMQConsumer implements Consumer {
   private client: stompit.Client;
   private subscriptions: stompit.Client.Subscription[] = [];
   private currentMessage: stompit.Client.Message | null = null;
-  private topics: string[] = [];
-  private messageQueue: { topic: string; message: Message }[] = [];
-  private resolveWaiting: ((msg: { topic: string; message: Message }) => void) | null = null;
+  private messageQueue: MessageEnvelope[] = [];
+  private resolveWaiting: ((env: MessageEnvelope) => void) | null = null;
+  private messageIdCounter = 0;
 
   constructor(client: stompit.Client) {
     this.client = client;
   }
 
   async subscribe(topics: string[]): Promise<void> {
-    this.topics = topics;
     for (const topic of topics) {
       this.subscribeToTopic(topic);
     }
@@ -48,13 +47,19 @@ class ActiveMQConsumer implements Consumer {
           body,
         };
 
-        const item = { topic, message: msg };
+        const envelope: MessageEnvelope = {
+          topic,
+          partition: 0,
+          offset: String(++this.messageIdCounter),
+          message: msg,
+        };
+
         if (this.resolveWaiting) {
           const resolve = this.resolveWaiting;
           this.resolveWaiting = null;
-          resolve(item);
+          resolve(envelope);
         } else {
-          this.messageQueue.push(item);
+          this.messageQueue.push(envelope);
         }
       });
     });
@@ -62,7 +67,7 @@ class ActiveMQConsumer implements Consumer {
     this.subscriptions.push(subscription);
   }
 
-  async receive(): Promise<{ topic: string; message: Message }> {
+  async receive(): Promise<MessageEnvelope> {
     if (this.messageQueue.length > 0) {
       return this.messageQueue.shift()!;
     }
@@ -71,9 +76,16 @@ class ActiveMQConsumer implements Consumer {
     });
   }
 
-  async commit(): Promise<void> {
+  async ack(_envelope: MessageEnvelope): Promise<void> {
     if (this.currentMessage) {
       this.client.ack(this.currentMessage);
+      this.currentMessage = null;
+    }
+  }
+
+  async nack(_envelope: MessageEnvelope): Promise<void> {
+    if (this.currentMessage) {
+      this.client.nack(this.currentMessage);
       this.currentMessage = null;
     }
   }
@@ -94,7 +106,7 @@ class ActiveMQProducer implements Producer {
   }
 
   async send(topic: string, message: Message): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, _reject) => {
       const headers: stompit.Client.SendHeaders = {
         destination: `/queue/${topic}`,
         'content-type': 'application/octet-stream',
@@ -182,7 +194,7 @@ export class ActiveMQBroker implements Broker {
     });
   }
 
-  async createConsumer(_groupId: string): Promise<Consumer> {
+  async createConsumer(_options: ConsumerOptions): Promise<Consumer> {
     const client = await this.getClient();
     return new ActiveMQConsumer(client);
   }

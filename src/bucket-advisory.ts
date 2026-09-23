@@ -38,7 +38,10 @@ export class BucketAdvisory extends EventEmitter {
   async start(): Promise<void> {
     this.admin = this.broker.admin();
     this.producer = await this.broker.createProducer();
-    this.consumer = await this.broker.createConsumer(`${this.config.consumerGroupPrefix}-advisory`);
+    this.consumer = await this.broker.createConsumer({
+      groupId: `${this.config.consumerGroupPrefix}-advisory`,
+      instanceId: this.config.instanceId ? `${this.config.instanceId}-advisory` : undefined,
+    });
 
     await this.discoverExistingBuckets();
 
@@ -87,10 +90,10 @@ export class BucketAdvisory extends EventEmitter {
   private async consumeAdvisoryEvents(): Promise<void> {
     while (this.running && this.consumer) {
       try {
-        const { message } = await this.consumer.receive();
-        const event: AdvisoryEvent = JSON.parse(message.body.toString());
+        const envelope = await this.consumer.receive();
+        const event: AdvisoryEvent = JSON.parse(envelope.message.body.toString());
         this.handleAdvisoryEvent(event);
-        await this.consumer.commit();
+        await this.consumer.ack(envelope);
       } catch (error) {
         if (this.running) {
           console.error('Advisory consumer error:', error);

@@ -7,8 +7,10 @@ export interface DelayServiceConfig {
   bucketSeparator: string;
   destinationHeader: string;
   delayDurationHeader: string;
+  enqueuedAtHeader: string;
   consumerGroupPrefix: string;
-  workerPoolSize: number;
+  instanceId: string | null;
+  timeoutPoolSize: number;
   advisorySyncIntervalMs: number;
   bucketIdleTimeoutMs: number;
   cleanupIntervalMs: number;
@@ -40,8 +42,10 @@ export function loadConfig(): DelayServiceConfig {
     bucketSeparator: separator,
     destinationHeader: process.env.DESTINATION_HEADER || 'DELAY_DESTINATION',
     delayDurationHeader: process.env.DELAY_DURATION_HEADER || 'DELAY_DURATION',
+    enqueuedAtHeader: process.env.ENQUEUED_AT_HEADER || 'ENQUEUED_AT',
     consumerGroupPrefix: process.env.CONSUMER_GROUP_PREFIX || 'pubsub-delay',
-    workerPoolSize: parseInt(process.env.WORKER_POOL_SIZE || '10', 10),
+    instanceId: process.env.HOSTNAME || process.env.INSTANCE_ID || null,
+    timeoutPoolSize: parseInt(process.env.TIMEOUT_POOL_SIZE || '100', 10),
     advisorySyncIntervalMs: parseInt(process.env.ADVISORY_SYNC_INTERVAL_MS || '10000', 10),
     bucketIdleTimeoutMs: parseInt(process.env.BUCKET_IDLE_TIMEOUT_MS || '3600000', 10), // 1 hour default
     cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '60000', 10), // 1 minute default

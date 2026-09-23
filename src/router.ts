@@ -18,7 +18,10 @@ export class Router {
   }
 
   async start(): Promise<void> {
-    this.consumer = await this.broker.createConsumer(`${this.config.consumerGroupPrefix}-router`);
+    this.consumer = await this.broker.createConsumer({
+      groupId: `${this.config.consumerGroupPrefix}-router`,
+      instanceId: this.config.instanceId ? `${this.config.instanceId}-router` : undefined,
+    });
     this.producer = await this.broker.createProducer();
     await this.consumer.subscribe([this.config.ingestTopic]);
 
@@ -65,7 +68,16 @@ export class Router {
 
     await this.bucketAdvisory.registerBucket(bucketTopic, isoDuration, delayMs);
 
-    await this.producer!.send(bucketTopic, message);
+    const stampedMessage: Message = {
+      key: message.key,
+      headers: {
+        ...message.headers,
+        [this.config.enqueuedAtHeader]: Date.now().toString(),
+      },
+      body: message.body,
+    };
+
+    await this.producer!.send(bucketTopic, stampedMessage);
     console.log(`Routed message to ${bucketTopic}`);
   }
 }

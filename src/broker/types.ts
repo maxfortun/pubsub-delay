@@ -4,10 +4,18 @@ export interface Message {
   body: Buffer;
 }
 
+export interface MessageEnvelope {
+  topic: string;
+  partition: number;
+  offset: string;
+  message: Message;
+}
+
 export interface Consumer {
   subscribe(topics: string[]): Promise<void>;
-  receive(): Promise<{ topic: string; message: Message }>;
-  commit(): Promise<void>;
+  receive(): Promise<MessageEnvelope>;
+  ack(envelope: MessageEnvelope): Promise<void>;
+  nack(envelope: MessageEnvelope): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -24,10 +32,15 @@ export interface TopicAdmin {
   topicExists(topic: string): Promise<boolean>;
 }
 
+export interface ConsumerOptions {
+  groupId: string;
+  instanceId?: string;
+}
+
 export interface Broker {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
-  createConsumer(groupId: string): Promise<Consumer>;
+  createConsumer(options: ConsumerOptions): Promise<Consumer>;
   createProducer(): Promise<Producer>;
   admin(): TopicAdmin;
 }
