@@ -110,9 +110,8 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
       },
     });
 
-    // Wait for pubsub-delay service to be ready
-    console.log('Waiting for pubsub-delay service...');
-    await delay(5000);
+    // Service readiness is handled by docker-compose health check
+    console.log('pubsub-delay service is ready');
   });
 
   after(async () => {

@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import { Router } from './router.js';
 import { BucketAdvisory } from './bucket-advisory.js';
 import { Scheduler } from './scheduler.js';
+import { createServer } from 'http';
 
 async function initializeTopics(broker: ReturnType<typeof createBroker>, config: ReturnType<typeof loadConfig>) {
   const admin = broker.admin();
@@ -70,7 +71,30 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
+  // Health check server for readiness probes
+  const healthPort = parseInt(process.env.HEALTH_PORT || '8080', 10);
+  let isReady = false;
+
+  const healthServer = createServer((req, res) => {
+    if (req.url === '/ready') {
+      res.statusCode = isReady ? 200 : 503;
+      res.end(isReady ? 'ready' : 'not ready');
+    } else if (req.url === '/health') {
+      res.statusCode = 200;
+      res.end('ok');
+    } else {
+      res.statusCode = 404;
+      res.end();
+    }
+  });
+
+  healthServer.listen(healthPort, () => {
+    console.log(`Health server listening on port ${healthPort}`);
+  });
+
   await router.start();
+  isReady = true;
+  console.log('Service ready');
 }
 
 main().catch((error) => {

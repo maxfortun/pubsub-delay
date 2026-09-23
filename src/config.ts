@@ -5,6 +5,7 @@ export interface DelayServiceConfig {
   ingestTopic: string;
   advisoryTopic: string;
   bucketSeparator: string;
+  headerPrefix: string;
   destinationHeader: string;
   delayDurationHeader: string;
   enqueuedAtHeader: string;
@@ -36,14 +37,17 @@ export function loadConfig(): DelayServiceConfig {
     } : undefined,
   };
 
+  const headerPrefix = process.env.HEADER_PREFIX || 'DELAY_';
+
   return {
     broker,
     ingestTopic,
     advisoryTopic: `${ingestTopic}${separator}advisory`,
     bucketSeparator: separator,
-    destinationHeader: process.env.DESTINATION_HEADER || 'DELAY_DESTINATION',
-    delayDurationHeader: process.env.DELAY_DURATION_HEADER || 'DELAY_DURATION',
-    enqueuedAtHeader: process.env.ENQUEUED_AT_HEADER || 'ENQUEUED_AT',
+    headerPrefix,
+    destinationHeader: process.env.DESTINATION_HEADER || `${headerPrefix}DESTINATION`,
+    delayDurationHeader: process.env.DELAY_DURATION_HEADER || `${headerPrefix}DURATION`,
+    enqueuedAtHeader: process.env.ENQUEUED_AT_HEADER || `${headerPrefix}ENQUEUED_AT`,
     consumerGroupPrefix: process.env.CONSUMER_GROUP_PREFIX || 'pubsub-delay',
     instanceId: process.env.HOSTNAME || process.env.INSTANCE_ID || null,
     timeoutPoolSize: parseInt(process.env.TIMEOUT_POOL_SIZE || '100', 10),

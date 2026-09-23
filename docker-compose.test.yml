@@ -38,6 +38,12 @@ services:
   pubsub-delay:
     build: .
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ready || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
     environment:
       BROKER_TYPE: kafka
       KAFKA_BROKERS: kafka:9092
@@ -64,6 +70,6 @@ services:
       kafka:
         condition: service_healthy
       pubsub-delay:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./test-results:/app/test-results
