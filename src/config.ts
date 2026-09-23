@@ -1,4 +1,5 @@
 import { BrokerConfig } from './broker/types.js';
+import { StrategyType, StrategyConfig } from './strategy/index.js';
 
 export interface DelayServiceConfig {
   broker: BrokerConfig;
@@ -16,6 +17,8 @@ export interface DelayServiceConfig {
   bucketIdleTimeoutMs: number;
   cleanupIntervalMs: number;
   precreateBuckets: string[];
+  strategyType: StrategyType;
+  strategyConfig: StrategyConfig;
 }
 
 export function loadConfig(): DelayServiceConfig {
@@ -38,6 +41,8 @@ export function loadConfig(): DelayServiceConfig {
   };
 
   const headerPrefix = process.env.HEADER_PREFIX || 'DELAY_';
+  const strategyType = (process.env.SCHEDULER_STRATEGY || 'bounded-pool') as StrategyType;
+  const poolSize = parseInt(process.env.TIMEOUT_POOL_SIZE || '100', 10);
 
   return {
     broker,
@@ -50,11 +55,17 @@ export function loadConfig(): DelayServiceConfig {
     enqueuedAtHeader: process.env.ENQUEUED_AT_HEADER || `${headerPrefix}ENQUEUED_AT`,
     consumerGroupPrefix: process.env.CONSUMER_GROUP_PREFIX || 'pubsub-delay',
     instanceId: process.env.HOSTNAME || process.env.INSTANCE_ID || null,
-    timeoutPoolSize: parseInt(process.env.TIMEOUT_POOL_SIZE || '100', 10),
+    timeoutPoolSize: poolSize,
     advisorySyncIntervalMs: parseInt(process.env.ADVISORY_SYNC_INTERVAL_MS || '10000', 10),
-    bucketIdleTimeoutMs: parseInt(process.env.BUCKET_IDLE_TIMEOUT_MS || '3600000', 10), // 1 hour default
-    cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '60000', 10), // 1 minute default
+    bucketIdleTimeoutMs: parseInt(process.env.BUCKET_IDLE_TIMEOUT_MS || '3600000', 10),
+    cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '60000', 10),
     precreateBuckets: (process.env.PRECREATE_BUCKETS || '').split(',').filter(Boolean),
+    strategyType,
+    strategyConfig: {
+      poolSize,
+      wheelResolutionMs: parseInt(process.env.WHEEL_RESOLUTION_MS || '100', 10),
+      wheelSlots: parseInt(process.env.WHEEL_SLOTS || '600', 10),
+    },
   };
 }
 
