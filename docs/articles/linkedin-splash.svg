@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 627" width="1200" height="627">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4facfe"/>
+      <stop offset="100%" style="stop-color:#00f2fe"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="627" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.05" stroke="#4facfe" stroke-width="1">
+    <line x1="0" y1="100" x2="1200" y2="100"/>
+    <line x1="0" y1="200" x2="1200" y2="200"/>
+    <line x1="0" y1="300" x2="1200" y2="300"/>
+    <line x1="0" y1="400" x2="1200" y2="400"/>
+    <line x1="0" y1="500" x2="1200" y2="500"/>
+    <line x1="200" y1="0" x2="200" y2="627"/>
+    <line x1="400" y1="0" x2="400" y2="627"/>
+    <line x1="600" y1="0" x2="600" y2="627"/>
+    <line x1="800" y1="0" x2="800" y2="627"/>
+    <line x1="1000" y1="0" x2="1000" y2="627"/>
+  </g>
+
+  <!-- Bucket topics: one delay, and one timer, per topic -->
+  <g opacity="0.5">
+    <text x="224" y="274" text-anchor="end" fill="#8892b0" font-family="Menlo, Consolas, monospace" font-size="17">PT1S</text>
+    <rect x="240" y="240" width="500" height="56" rx="12" fill="#1f2a44" stroke="url(#accentGrad)" stroke-width="2"/>
+    <g opacity="0.35"><rect x="258" y="253" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M258 257 L280 271 L302 257" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.46"><rect x="322" y="253" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M322 257 L344 271 L366 257" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.57"><rect x="386" y="253" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M386 257 L408 271 L430 257" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.68"><rect x="450" y="253" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M450 257 L472 271 L494 257" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.78"><rect x="514" y="253" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M514 257 L536 271 L558 257" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.89"><rect x="578" y="253" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M578 257 L600 271 L622 257" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="1.00"><rect x="642" y="253" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M642 257 L664 271 L686 257" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <circle cx="740" cy="268" r="22" fill="#1a1a2e" stroke="url(#accentGrad)" stroke-width="2"/>
+    <circle cx="740" cy="268" r="16" fill="none" stroke="#4facfe" stroke-width="1" opacity="0.5"/>
+    <line x1="740" y1="268" x2="740" y2="257" stroke="#00f2fe" stroke-width="2" stroke-linecap="round"/>
+    <line x1="740" y1="268" x2="748" y2="268" stroke="#00f2fe" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="740" cy="268" r="3" fill="#00f2fe"/>
+    <line x1="768" y1="268" x2="882" y2="324.25" stroke="url(#accentGrad)" stroke-width="2" stroke-dasharray="12,6"/>
+    <polygon points="892.8,329.6 878.5,331.4 885.5,317.1" fill="#00f2fe"/>
+  </g>
+  <g opacity="1">
+    <text x="224" y="349" text-anchor="end" fill="#ffffff" font-family="Menlo, Consolas, monospace" font-size="17">PT30S</text>
+    <rect x="240" y="315" width="500" height="56" rx="12" fill="#1f2a44" stroke="url(#accentGrad)" stroke-width="2"/>
+    <g opacity="0.35"><rect x="258" y="328" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M258 332 L280 346 L302 332" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.46"><rect x="322" y="328" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M322 332 L344 346 L366 332" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.57"><rect x="386" y="328" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M386 332 L408 346 L430 332" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.68"><rect x="450" y="328" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M450 332 L472 346 L494 332" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.78"><rect x="514" y="328" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M514 332 L536 346 L558 332" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.89"><rect x="578" y="328" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M578 332 L600 346 L622 332" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="1.00"><rect x="642" y="328" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M642 332 L664 346 L686 332" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <circle cx="740" cy="343" r="28" fill="#1a1a2e" stroke="url(#accentGrad)" stroke-width="2" filter="url(#glow)"/>
+    <circle cx="740" cy="343" r="22" fill="none" stroke="#4facfe" stroke-width="1" opacity="0.5"/>
+    <line x1="740" y1="343" x2="740" y2="326" stroke="#00f2fe" stroke-width="2" stroke-linecap="round"/>
+    <line x1="740" y1="343" x2="754" y2="343" stroke="#00f2fe" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="740" cy="343" r="3" fill="#00f2fe"/>
+    <line x1="774" y1="343" x2="882" y2="343" stroke="url(#accentGrad)" stroke-width="3" stroke-dasharray="12,6"/>
+    <polygon points="894.0,343.0 882.0,351.0 882.0,335.0" fill="#00f2fe"/>
+  </g>
+  <g opacity="0.5">
+    <text x="224" y="424" text-anchor="end" fill="#8892b0" font-family="Menlo, Consolas, monospace" font-size="17">PT1H</text>
+    <rect x="240" y="390" width="500" height="56" rx="12" fill="#1f2a44" stroke="url(#accentGrad)" stroke-width="2"/>
+    <g opacity="0.35"><rect x="258" y="403" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M258 407 L280 421 L302 407" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.46"><rect x="322" y="403" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M322 407 L344 421 L366 407" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.57"><rect x="386" y="403" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M386 407 L408 421 L430 407" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.68"><rect x="450" y="403" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M450 407 L472 421 L494 407" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.78"><rect x="514" y="403" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M514 407 L536 421 L558 407" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="0.89"><rect x="578" y="403" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M578 407 L600 421 L622 407" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <g opacity="1.00"><rect x="642" y="403" width="44" height="30" rx="4" fill="#2d3a5a" stroke="#4facfe" stroke-width="1.5"/><path d="M642 407 L664 421 L686 407" fill="none" stroke="#4facfe" stroke-width="1.5"/></g>
+    <circle cx="740" cy="418" r="22" fill="#1a1a2e" stroke="url(#accentGrad)" stroke-width="2"/>
+    <circle cx="740" cy="418" r="16" fill="none" stroke="#4facfe" stroke-width="1" opacity="0.5"/>
+    <line x1="740" y1="418" x2="740" y2="407" stroke="#00f2fe" stroke-width="2" stroke-linecap="round"/>
+    <line x1="740" y1="418" x2="748" y2="418" stroke="#00f2fe" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="740" cy="418" r="3" fill="#00f2fe"/>
+    <line x1="768" y1="418" x2="882" y2="361.75" stroke="url(#accentGrad)" stroke-width="2" stroke-dasharray="12,6"/>
+    <polygon points="892.8,356.4 885.5,368.9 878.5,354.6" fill="#00f2fe"/>
+  </g>
+
+  <!-- Destination topic -->
+  <g transform="translate(900, 303)">
+    <rect x="0" y="0" width="120" height="80" rx="8" fill="#2d3a5a" stroke="url(#accentGrad)" stroke-width="2"/>
+    <line x1="15" y1="25" x2="105" y2="25" stroke="#4facfe" stroke-width="2" opacity="0.7"/>
+    <line x1="15" y1="40" x2="85" y2="40" stroke="#4facfe" stroke-width="2" opacity="0.7"/>
+    <line x1="15" y1="55" x2="65" y2="55" stroke="#4facfe" stroke-width="2" opacity="0.7"/>
+    <circle cx="100" cy="65" r="18" fill="#1a1a2e" stroke="#00f2fe" stroke-width="2"/>
+    <path d="M90 65 L97 72 L110 58" fill="none" stroke="#00f2fe" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Title text -->
+  <text x="600" y="130" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="52" font-weight="bold">
+    PubSub Delay
+  </text>
+
+  <!-- Subtitle -->
+  <text x="600" y="175" text-anchor="middle" fill="#8892b0" font-family="Arial, sans-serif" font-size="24">
+    Delayed Message Delivery for PubSub
+  </text>
+
+  <!-- Caption -->
+  <text x="600" y="492" text-anchor="middle" fill="#8892b0" font-family="Arial, sans-serif" font-size="16">
+    Every message in a bucket has the same delay, so its head is always the next one due.
+  </text>
+
+  <!-- Bottom tagline -->
+  <text x="600" y="545" text-anchor="middle" fill="#4facfe" font-family="Arial, sans-serif" font-size="20" opacity="0.8">
+    Delay the topic, not the message.
+  </text>
+
+  <!-- Decorative corner accents -->
+  <path d="M30 30 L30 80 M30 30 L80 30" stroke="url(#accentGrad)" stroke-width="2" opacity="0.4"/>
+  <path d="M1170 30 L1170 80 M1170 30 L1120 30" stroke="url(#accentGrad)" stroke-width="2" opacity="0.4"/>
+  <path d="M30 597 L30 547 M30 597 L80 597" stroke="url(#accentGrad)" stroke-width="2" opacity="0.4"/>
+  <path d="M1170 597 L1170 547 M1170 597 L1120 597" stroke="url(#accentGrad)" stroke-width="2" opacity="0.4"/>
+</svg>

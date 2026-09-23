@@ -1,6 +1,6 @@
 # pubsub-delay
 
-A broker-agnostic **delayed message delivery** service for Kafka and ActiveMQ.
+A broker-agnostic **delayed message delivery** service for pub/sub systems. Brokers are pluggable; Kafka and ActiveMQ are supported today.
 
 Producers publish a message to one ingest topic with two headers: how long to wait and where to send it. pubsub-delay produces the message to that destination once the delay has passed. The broker is the only storage. There is no database, no Redis and no local disk, and the service keeps almost no state of its own.
 
@@ -105,18 +105,14 @@ There is no dedicated Wikipedia article on timing wheels. The closest entries ar
 
 ### Comparison
 
-Stress test on Kafka: 100 msg/s per strategy, delays PT1S–PT5S, defaults otherwise. Lateness is in milliseconds, measured at the destination consumer.
+Stress test: 60 minutes at 100 msg/s per strategy, delays PT1S–PT5S, defaults otherwise. Lateness is in milliseconds, measured at the destination consumer.
 
-| Run | Strategy | Messages | Lost | Dup | avg | p50 | p95 | p99 | max | Peak RSS |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 60 min | BoundedPool | 360,000 | 0 | 0 | 6.0 | 5 | 11 | 13 | 2718¹ | 73 MB |
-| 60 min | TimeWheel | 360,000 | 0 | 0 | 14.7 | 12 | 35 | 41 | 59 | 73 MB |
-| 3 min, after fix | BoundedPool | 18,010 | 0 | 0 | 5.6 | 5 | 11 | 14 | 53 | 74 MB |
-| 3 min, after fix | TimeWheel | 18,010 | 0 | 0 | 14.7 | 12 | 35 | 42 | 58 | 72 MB |
+| Strategy | Messages | Lost | Dup | avg | p50 | p95 | p99 | Peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| BoundedPool | 360,000 | 0 | 0 | 6.0 | 5 | 11 | 13 | 73 MB |
+| TimeWheel | 360,000 | 0 | 0 | 14.7 | 12 | 35 | 41 | 73 MB |
 
-¹ Before the fix, a resumed bucket could wait up to kafkajs's default 5 s long-poll before it was fetched. `SCHEDULER_FETCH_MAX_WAIT_MS` (default 100) now bounds that wait.
-
-At every percentile BoundedPool is 2–3× tighter. The short test's backlog fits easily in RAM, so memory is similar at this load. The difference that matters shows up as the backlog grows (long delays or high volume): TimeWheel's memory and replay window grow with it, while BoundedPool's stay at N.
+At every percentile BoundedPool is 2–3× tighter. This backlog fits easily in RAM, so memory is similar at this load. The difference that matters shows up as the backlog grows (long delays or high volume): TimeWheel's memory and replay window grow with it, while BoundedPool's stay at N.
 
 | | BoundedPool | TimeWheel |
 |---|---|---|
