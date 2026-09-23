@@ -40,16 +40,31 @@ export class Scheduler {
     }
 
     this.advisory.on('bucket:added', async (bucket) => {
-      if (this.consumer) {
-        await this.consumer.subscribe([bucket.topic]);
-        console.log(`Scheduler subscribed to new bucket: ${bucket.topic}`);
-      }
+      console.log(`Scheduler: new bucket detected: ${bucket.topic} (requires consumer restart to subscribe)`);
     });
 
     this.running = true;
     console.log(`Scheduler started with timeout pool size ${this.config.timeoutPoolSize}`);
 
     this.peekLoop();
+  }
+
+  private async subscribeWithRetry(topic: string, retries = 5, delayMs = 1000): Promise<void> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        await this.consumer!.subscribe([topic]);
+        console.log(`Scheduler subscribed to new bucket: ${topic}`);
+        return;
+      } catch (error) {
+        if (i < retries - 1) {
+          console.log(`Scheduler: retry subscribing to ${topic} in ${delayMs}ms (attempt ${i + 1}/${retries})`);
+          await new Promise((r) => setTimeout(r, delayMs));
+          delayMs *= 2;
+        } else {
+          console.error(`Scheduler: failed to subscribe to ${topic} after ${retries} attempts`, error);
+        }
+      }
+    }
   }
 
   async stop(): Promise<void> {

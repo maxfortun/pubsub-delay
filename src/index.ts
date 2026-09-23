@@ -4,12 +4,28 @@ import { Router } from './router.js';
 import { BucketAdvisory } from './bucket-advisory.js';
 import { Scheduler } from './scheduler.js';
 
+async function initializeTopics(broker: ReturnType<typeof createBroker>, config: ReturnType<typeof loadConfig>) {
+  const admin = broker.admin();
+  const requiredTopics = [config.ingestTopic, config.advisoryTopic];
+
+  for (const topic of requiredTopics) {
+    const exists = await admin.topicExists(topic);
+    if (!exists) {
+      console.log(`Creating topic: ${topic}`);
+      await admin.createTopic(topic);
+    }
+  }
+}
+
 async function main() {
   const config = loadConfig();
   const broker = createBroker(config.broker);
 
   await broker.connect();
   console.log(`Connected to ${config.broker.type} broker`);
+
+  await initializeTopics(broker, config);
+  console.log('Required topics initialized');
 
   const advisory = new BucketAdvisory(broker, config);
   await advisory.start();

@@ -4,6 +4,5 @@ dist
 .gitignore
 *.log
 .env
+.env.*
 test-results
-Dockerfile*
-docker-compose*.yml
