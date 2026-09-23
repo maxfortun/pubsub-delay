@@ -28,8 +28,9 @@ export class BucketAdvisory extends EventEmitter {
   private running = false;
   private syncInterval: NodeJS.Timeout | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
-  // Removed buckets whose topic is deleted once every scheduler has had time to unsubscribe
-  private pendingDeletion = new Map<string, number>();
+  // Removed buckets, kept so discovery does not revive them while the topic still exists.
+  // owner: this pod removed it and deletes the topic once every scheduler had time to unsubscribe.
+  private pendingDeletion = new Map<string, { removedAt: number; owner: boolean }>();
 
   constructor(broker: Broker, config: DelayServiceConfig) {
     super();
@@ -81,7 +82,8 @@ export class BucketAdvisory extends EventEmitter {
           this.config.bucketSeparator,
           topic
         );
-        if (isoDuration && !this.buckets.has(topic)) {
+        // Topics awaiting deletion still exist; only new traffic via registerBucket revives them
+        if (isoDuration && !this.buckets.has(topic) && !this.pendingDeletion.has(topic)) {
           const delayMs = parseDurationToMs(isoDuration);
           this.addBucket(topic, isoDuration, delayMs, false);
         }
@@ -108,6 +110,9 @@ export class BucketAdvisory extends EventEmitter {
     if (event.type === 'bucket:add' && event.isoDuration && event.delayMs !== undefined) {
       this.addBucket(event.topic, event.isoDuration, event.delayMs, false);
     } else if (event.type === 'bucket:remove') {
+      if (this.buckets.has(event.topic)) {
+        this.pendingDeletion.set(event.topic, { removedAt: Date.now(), owner: false });
+      }
       this.removeBucket(event.topic, false);
     }
   }
@@ -189,13 +194,20 @@ export class BucketAdvisory extends EventEmitter {
 
     // Phase 2: delete topics removed at least BUCKET_DELETE_GRACE_MS ago. Deleting while a
     // scheduler is still (re)joining with the topic in its subscription stalls the join.
-    for (const [topic, removedAt] of this.pendingDeletion) {
+    for (const [topic, { removedAt, owner }] of this.pendingDeletion) {
       if (this.buckets.has(topic)) {
         // Re-registered by new traffic in the meantime: keep it
         this.pendingDeletion.delete(topic);
         continue;
       }
       if (now - removedAt < this.config.bucketDeleteGraceMs) continue;
+      if (!owner) {
+        // The owning pod deletes it; keep the tombstone until that has had time to happen
+        if (now - removedAt >= this.config.bucketDeleteGraceMs + 2 * this.config.cleanupIntervalMs) {
+          this.pendingDeletion.delete(topic);
+        }
+        continue;
+      }
       try {
         const lag = await this.admin.getConsumerLag(topic, groupId);
         if (this.buckets.has(topic)) continue;
@@ -204,7 +216,8 @@ export class BucketAdvisory extends EventEmitter {
           await this.admin.deleteTopic(topic);
         } else {
           console.warn(`Bucket ${topic} received messages after removal (lag ${lag}); re-adding`);
-          this.addBucket(topic, bucketTopicToDuration(this.config.ingestTopic, this.config.bucketSeparator, topic)!, parseDurationToMs(bucketTopicToDuration(this.config.ingestTopic, this.config.bucketSeparator, topic)!), true);
+          const isoDuration = bucketTopicToDuration(this.config.ingestTopic, this.config.bucketSeparator, topic)!;
+          this.addBucket(topic, isoDuration, parseDurationToMs(isoDuration), true);
         }
         this.pendingDeletion.delete(topic);
       } catch (error) {
@@ -223,7 +236,7 @@ export class BucketAdvisory extends EventEmitter {
           console.log(`Cleaning up idle bucket: ${topic} (idle for ${idleTime}ms)`);
           // Unsubscribe everywhere first; the topic itself is deleted in a later cycle
           this.removeBucket(topic, true);
-          this.pendingDeletion.set(topic, now);
+          this.pendingDeletion.set(topic, { removedAt: now, owner: true });
         }
       } catch (error) {
         console.error(`Error checking bucket ${topic} for cleanup:`, error);
