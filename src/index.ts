@@ -8,6 +8,12 @@ async function initializeTopics(broker: ReturnType<typeof createBroker>, config:
   const admin = broker.admin();
   const requiredTopics = [config.ingestTopic, config.advisoryTopic];
 
+  // Add pre-created bucket topics
+  for (const duration of config.precreateBuckets) {
+    const bucketTopic = `${config.ingestTopic}${config.bucketSeparator}${duration}`;
+    requiredTopics.push(bucketTopic);
+  }
+
   for (const topic of requiredTopics) {
     const exists = await admin.topicExists(topic);
     if (!exists) {

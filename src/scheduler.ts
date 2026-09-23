@@ -20,6 +20,12 @@ export class Scheduler {
   private timeoutPool: Map<string, PendingMessage> = new Map();
   private poolIdCounter = 0;
 
+  private subscribedTopics = new Set<string>();
+  private pendingTopics = new Set<string>();
+  private restartGraceTimeout: NodeJS.Timeout | null = null;
+  private restartGracePeriodMs = 5000;
+  private isRestarting = false;
+
   constructor(broker: Broker, config: DelayServiceConfig, advisory: BucketAdvisory) {
     this.broker = broker;
     this.config = config;
@@ -28,19 +34,14 @@ export class Scheduler {
 
   async start(): Promise<void> {
     this.producer = await this.broker.createProducer();
-    this.consumer = await this.broker.createConsumer({
-      groupId: `${this.config.consumerGroupPrefix}-scheduler`,
-      instanceId: this.config.instanceId ? `${this.config.instanceId}-scheduler` : undefined,
-    });
 
     const buckets = this.advisory.getBuckets();
     const topics = buckets.map((b) => b.topic);
-    if (topics.length > 0) {
-      await this.consumer.subscribe(topics);
-    }
 
-    this.advisory.on('bucket:added', async (bucket) => {
-      console.log(`Scheduler: new bucket detected: ${bucket.topic} (requires consumer restart to subscribe)`);
+    await this.startConsumer(topics);
+
+    this.advisory.on('bucket:added', (bucket) => {
+      this.onBucketAdded(bucket.topic);
     });
 
     this.running = true;
@@ -49,26 +50,66 @@ export class Scheduler {
     this.peekLoop();
   }
 
-  private async subscribeWithRetry(topic: string, retries = 5, delayMs = 1000): Promise<void> {
-    for (let i = 0; i < retries; i++) {
-      try {
-        await this.consumer!.subscribe([topic]);
-        console.log(`Scheduler subscribed to new bucket: ${topic}`);
-        return;
-      } catch (error) {
-        if (i < retries - 1) {
-          console.log(`Scheduler: retry subscribing to ${topic} in ${delayMs}ms (attempt ${i + 1}/${retries})`);
-          await new Promise((r) => setTimeout(r, delayMs));
-          delayMs *= 2;
-        } else {
-          console.error(`Scheduler: failed to subscribe to ${topic} after ${retries} attempts`, error);
-        }
+  private async startConsumer(topics: string[]): Promise<void> {
+    this.consumer = await this.broker.createConsumer({
+      groupId: `${this.config.consumerGroupPrefix}-scheduler`,
+      instanceId: this.config.instanceId ? `${this.config.instanceId}-scheduler` : undefined,
+    });
+
+    if (topics.length > 0) {
+      await this.consumer.subscribe(topics);
+      topics.forEach((t) => this.subscribedTopics.add(t));
+      console.log(`Scheduler subscribed to ${topics.length} topics`);
+    }
+  }
+
+  private onBucketAdded(topic: string): void {
+    if (this.subscribedTopics.has(topic)) return;
+
+    this.pendingTopics.add(topic);
+    console.log(`Scheduler: new bucket detected: ${topic}, scheduling restart`);
+
+    if (this.restartGraceTimeout) {
+      clearTimeout(this.restartGraceTimeout);
+    }
+
+    this.restartGraceTimeout = setTimeout(() => {
+      this.restartConsumer();
+    }, this.restartGracePeriodMs);
+  }
+
+  private async restartConsumer(): Promise<void> {
+    if (this.isRestarting || this.pendingTopics.size === 0) return;
+
+    this.isRestarting = true;
+    const newTopics = Array.from(this.pendingTopics);
+    this.pendingTopics.clear();
+
+    console.log(`Scheduler: restarting consumer to add ${newTopics.length} new topics`);
+
+    try {
+      if (this.consumer) {
+        await this.consumer.close();
       }
+
+      const allTopics = [...this.subscribedTopics, ...newTopics];
+      await this.startConsumer(allTopics);
+
+      console.log(`Scheduler: consumer restarted with ${allTopics.length} topics`);
+    } catch (error) {
+      console.error('Scheduler: failed to restart consumer', error);
+      newTopics.forEach((t) => this.pendingTopics.add(t));
+    } finally {
+      this.isRestarting = false;
     }
   }
 
   async stop(): Promise<void> {
     this.running = false;
+
+    if (this.restartGraceTimeout) {
+      clearTimeout(this.restartGraceTimeout);
+    }
 
     for (const [_id, pending] of this.timeoutPool) {
       if (pending.timeoutHandle) {
@@ -82,12 +123,17 @@ export class Scheduler {
   }
 
   private async peekLoop(): Promise<void> {
-    while (this.running && this.consumer) {
+    while (this.running) {
+      if (!this.consumer || this.isRestarting) {
+        await new Promise((r) => setTimeout(r, 100));
+        continue;
+      }
+
       try {
         const envelope = await this.consumer.receive();
         await this.handleMessage(envelope);
       } catch (error) {
-        if (this.running) {
+        if (this.running && !this.isRestarting) {
           console.error('Scheduler peek error:', error);
         }
       }
@@ -131,7 +177,7 @@ export class Scheduler {
     } else {
       const evictCandidate = this.findLongestWaiting();
       if (evictCandidate && pending.deliverAt < evictCandidate.pending.deliverAt) {
-        await this.evictWithSeek(evictCandidate);
+        await this.evictWithNack(evictCandidate);
         this.addToPool(pending);
       } else {
         await this.nack(envelope);
@@ -164,7 +210,7 @@ export class Scheduler {
     return longest;
   }
 
-  private async evictWithSeek(entry: { id: string; pending: PendingMessage }): Promise<void> {
+  private async evictWithNack(entry: { id: string; pending: PendingMessage }): Promise<void> {
     const { id, pending } = entry;
 
     if (pending.timeoutHandle) {

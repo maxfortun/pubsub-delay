@@ -47,6 +47,7 @@ services:
       BUCKET_IDLE_TIMEOUT_MS: "30000"
       CLEANUP_INTERVAL_MS: "5000"
       ADVISORY_SYNC_INTERVAL_MS: "5000"
+      PRECREATE_BUCKETS: "PT1S,PT2S,PT3S,PT4S,PT5S,PT6S,PT7S"
     depends_on:
       kafka:
         condition: service_healthy

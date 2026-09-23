@@ -14,6 +14,7 @@ export interface DelayServiceConfig {
   advisorySyncIntervalMs: number;
   bucketIdleTimeoutMs: number;
   cleanupIntervalMs: number;
+  precreateBuckets: string[];
 }
 
 export function loadConfig(): DelayServiceConfig {
@@ -49,6 +50,7 @@ export function loadConfig(): DelayServiceConfig {
     advisorySyncIntervalMs: parseInt(process.env.ADVISORY_SYNC_INTERVAL_MS || '10000', 10),
     bucketIdleTimeoutMs: parseInt(process.env.BUCKET_IDLE_TIMEOUT_MS || '3600000', 10), // 1 hour default
     cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS || '60000', 10), // 1 minute default
+    precreateBuckets: (process.env.PRECREATE_BUCKETS || '').split(',').filter(Boolean),
   };
 }
 
