@@ -47,7 +47,8 @@ export function loadConfig(): DelayServiceConfig {
   const activemqLogin = process.env.ACTIVEMQ_LOGIN || 'admin';
   const activemqPasscode = process.env.ACTIVEMQ_PASSCODE || 'admin';
 
-  const headerPrefix = process.env.HEADER_PREFIX || 'DELAY_';
+  // Header names are lowercased: HTTP/2 requires lowercase field names
+  const headerPrefix = (process.env.HEADER_PREFIX || 'delay_').toLowerCase();
 
   const broker: BrokerConfig = {
     type: brokerType,
@@ -60,7 +61,7 @@ export function loadConfig(): DelayServiceConfig {
       port: parseInt(process.env.ACTIVEMQ_PORT || '61613', 10),
       login: activemqLogin,
       passcode: activemqPasscode,
-      keyHeader: process.env.KEY_HEADER || `${headerPrefix}KEY`,
+      keyHeader: (process.env.KEY_HEADER || `${headerPrefix}key`).toLowerCase(),
       prefetchSize: parseInt(process.env.ACTIVEMQ_PREFETCH || '100', 10),
       reconnectDelayMs: parseInt(process.env.ACTIVEMQ_RECONNECT_DELAY_MS || '1000', 10),
       heartbeatMs: parseInt(process.env.ACTIVEMQ_HEARTBEAT_MS || '5000', 10),
@@ -88,9 +89,9 @@ export function loadConfig(): DelayServiceConfig {
     advisoryTopic,
     bucketSeparator: separator,
     headerPrefix,
-    destinationHeader: process.env.DESTINATION_HEADER || `${headerPrefix}DESTINATION`,
-    delayDurationHeader: process.env.DELAY_DURATION_HEADER || `${headerPrefix}DURATION`,
-    enqueuedAtHeader: process.env.ENQUEUED_AT_HEADER || `${headerPrefix}ENQUEUED_AT`,
+    destinationHeader: (process.env.DESTINATION_HEADER || `${headerPrefix}destination`).toLowerCase(),
+    delayDurationHeader: (process.env.DELAY_DURATION_HEADER || `${headerPrefix}duration`).toLowerCase(),
+    enqueuedAtHeader: (process.env.ENQUEUED_AT_HEADER || `${headerPrefix}enqueued_at`).toLowerCase(),
     consumerGroupPrefix: process.env.CONSUMER_GROUP_PREFIX || 'pubsub-delay',
     instanceId: process.env.HOSTNAME || process.env.INSTANCE_ID || null,
     timeoutPoolSize: poolSize,

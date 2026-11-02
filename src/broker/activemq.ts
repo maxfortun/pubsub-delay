@@ -1,5 +1,6 @@
 import stompit from 'stompit';
 import { Broker, Consumer, Producer, Message, MessageEnvelope, BrokerConfig, TopicAdmin, ConsumerOptions } from './types.js';
+import { getHeader } from '../headers.js';
 
 type ActiveMQConfig = NonNullable<BrokerConfig['activemq']>;
 type JolokiaConfig = NonNullable<ActiveMQConfig['jolokia']>;
@@ -131,10 +132,13 @@ class ActiveMQConsumer implements Consumer {
 
   private toMessage(frame: stompit.Client.Message, body: Buffer): Message {
     const headers: Record<string, string> = {};
+    const raw: Record<string, string> = {};
+    const keyHeaderLower = this.config.keyHeader.toLowerCase();
     for (const [k, v] of Object.entries(frame.headers)) {
-      if (!this.config.stripHeaders.includes(k) && k !== this.config.keyHeader) headers[k] = String(v);
+      raw[k] = String(v);
+      if (!this.config.stripHeaders.includes(k) && k.toLowerCase() !== keyHeaderLower) headers[k] = String(v);
     }
-    const key = frame.headers[this.config.keyHeader] ?? frame.headers[GROUP_HEADER];
+    const key = getHeader(raw, this.config.keyHeader) ?? raw[GROUP_HEADER];
     return { key: key === undefined ? undefined : String(key), headers, body };
   }
 
@@ -266,12 +270,12 @@ class JolokiaTopicAdmin implements TopicAdmin {
 
   private async request(body: object): Promise<JolokiaResponse> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      'content-type': 'application/json',
       // Jolokia rejects requests without an allowed Origin
-      Origin: this.config.origin,
+      origin: this.config.origin,
     };
     if (this.config.login) {
-      headers.Authorization = `Basic ${Buffer.from(`${this.config.login}:${this.config.password ?? ''}`).toString('base64')}`;
+      headers.authorization = `Basic ${Buffer.from(`${this.config.login}:${this.config.password ?? ''}`).toString('base64')}`;
     }
     const res = await fetch(this.config.url, {
       method: 'POST',

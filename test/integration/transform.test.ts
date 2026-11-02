@@ -28,8 +28,8 @@ async function until(cond: () => boolean, timeoutMs: number): Promise<void> {
 const toHeaders = (h: Record<string, Buffer | string | undefined> | undefined) =>
   Object.fromEntries(Object.entries(h || {}).map(([k, v]) => [k, v?.toString() ?? '']));
 
-// Pre: auth check (401 unless the token is valid), strip Authorization, gzip the body.
-// Post: gunzip the body. Fails the first post call per TEST_ID with 503 when FAIL_ONCE is set.
+// Pre: auth check (401 unless the token is valid), strip authorization, gzip the body.
+// Post: gunzip the body. Fails the first post call per test_id with 503 when fail_once is set.
 function startMockPlugin(calls: { stage: string; testId: string }[]): Promise<Server> {
   const failedOnce = new Set<string>();
   const server = createServer((req, res) => {
@@ -37,30 +37,30 @@ function startMockPlugin(calls: { stage: string; testId: string }[]): Promise<Se
     req.on('data', (c) => (data += c));
     req.on('end', () => {
       const msg = JSON.parse(data);
-      const testId = msg.headers.TEST_ID ?? '';
+      const testId = msg.headers.test_id ?? '';
       calls.push({ stage: msg.stage, testId });
       const body = Buffer.from(msg.body, 'base64');
 
       if (req.url === '/pre') {
-        if (msg.headers.Authorization !== VALID_TOKEN) {
+        if (msg.headers.authorization !== VALID_TOKEN) {
           res.writeHead(401).end('invalid or missing Authorization');
           return;
         }
-        const { Authorization: _, ...headers } = msg.headers;
+        const { authorization: _, ...headers } = msg.headers;
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
-          headers: { ...headers, X_PRE_TRANSFORMED: 'gzip' },
+          headers: { ...headers, x_pre_transformed: 'gzip' },
           body: gzipSync(body).toString('base64'),
         }));
         return;
       }
 
-      if (msg.headers.FAIL_ONCE && !failedOnce.has(testId)) {
+      if (msg.headers.fail_once && !failedOnce.has(testId)) {
         failedOnce.add(testId);
         res.writeHead(503).end('try later');
         return;
       }
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
-        headers: { ...msg.headers, X_POST_TRANSFORMED: 'gunzip' },
+        headers: { ...msg.headers, x_post_transformed: 'gunzip' },
         body: gunzipSync(body).toString('base64'),
       }));
     });
@@ -85,7 +85,7 @@ describe('Transform plugin (http) end to end', { timeout: 120000 }, () => {
       messages: [{
         key: testId,
         value: Buffer.from(body),
-        headers: { DELAY_DURATION: 'PT2S', DELAY_DESTINATION: DESTINATION_TOPIC, TEST_ID: testId, ...headers },
+        headers: { delay_duration: 'PT2S', delay_destination: DESTINATION_TOPIC, test_id: testId, ...headers },
       }],
     });
 
@@ -107,7 +107,7 @@ describe('Transform plugin (http) end to end', { timeout: 120000 }, () => {
     await consumer.run({
       eachMessage: async ({ message }) => {
         const headers = toHeaders(message.headers as never);
-        received.set(headers.TEST_ID, { headers, body: message.value ?? Buffer.alloc(0) });
+        received.set(headers.test_id, { headers, body: message.value ?? Buffer.alloc(0) });
       },
     });
 
@@ -118,7 +118,7 @@ describe('Transform plugin (http) end to end', { timeout: 120000 }, () => {
     await bucketConsumer.run({
       eachMessage: async ({ message }) => {
         const headers = toHeaders(message.headers as never);
-        inBucket.set(headers.TEST_ID, { headers, body: message.value ?? Buffer.alloc(0) });
+        inBucket.set(headers.test_id, { headers, body: message.value ?? Buffer.alloc(0) });
       },
     });
   });
@@ -135,7 +135,7 @@ describe('Transform plugin (http) end to end', { timeout: 120000 }, () => {
     const id = `xform-ok-${Date.now()}`;
     const original = 'hello '.repeat(50);
     const sentAt = Date.now();
-    await send(id, { Authorization: VALID_TOKEN }, original);
+    await send(id, { authorization: VALID_TOKEN }, original);
 
     await until(() => received.has(id) && inBucket.has(id), 15000);
     const out = received.get(id);
@@ -143,14 +143,14 @@ describe('Transform plugin (http) end to end', { timeout: 120000 }, () => {
     assert.ok(Date.now() - sentAt >= 2000, 'delivered before its delay');
 
     assert.strictEqual(out.body.toString(), original);
-    assert.strictEqual(out.headers.X_PRE_TRANSFORMED, 'gzip');
-    assert.strictEqual(out.headers.X_POST_TRANSFORMED, 'gunzip');
-    assert.strictEqual(out.headers.Authorization, undefined, 'Authorization must not be forwarded');
-    assert.strictEqual(out.headers.DELAY_ENQUEUED_AT, undefined);
+    assert.strictEqual(out.headers.x_pre_transformed, 'gzip');
+    assert.strictEqual(out.headers.x_post_transformed, 'gunzip');
+    assert.strictEqual(out.headers.authorization, undefined, 'Authorization must not be forwarded');
+    assert.strictEqual(out.headers.delay_enqueued_at, undefined);
 
     const stored = inBucket.get(id);
     assert.ok(stored, 'message not found in bucket');
-    assert.strictEqual(stored.headers.Authorization, undefined, 'Authorization must not be stored');
+    assert.strictEqual(stored.headers.authorization, undefined, 'Authorization must not be stored');
     assert.strictEqual(gunzipSync(stored.body).toString(), original, 'bucket should hold the gzipped body');
     assert.ok(stored.body.length < Buffer.byteLength(original));
 
@@ -162,9 +162,9 @@ describe('Transform plugin (http) end to end', { timeout: 120000 }, () => {
     const bad = `xform-badauth-${Date.now()}`;
     const good = `xform-after-${Date.now()}`;
     await send(missing, {});
-    await send(bad, { Authorization: 'Bearer forged' });
+    await send(bad, { authorization: 'Bearer forged' });
     // A valid message sent afterwards proves the router moved past the rejected ones
-    await send(good, { Authorization: VALID_TOKEN });
+    await send(good, { authorization: VALID_TOKEN });
 
     await until(() => received.has(good), 15000);
     assert.ok(received.has(good), 'valid message after rejected ones not delivered');
@@ -177,11 +177,11 @@ describe('Transform plugin (http) end to end', { timeout: 120000 }, () => {
 
   it('retries a post-transform failure and delivers exactly once', async () => {
     const id = `xform-retry-${Date.now()}`;
-    await send(id, { Authorization: VALID_TOKEN, FAIL_ONCE: '1' });
+    await send(id, { authorization: VALID_TOKEN, fail_once: '1' });
 
     await until(() => received.has(id), 20000);
     assert.ok(received.has(id), 'message not delivered after a transient post-transform failure');
-    assert.strictEqual(received.get(id)!.headers.X_POST_TRANSFORMED, 'gunzip');
+    assert.strictEqual(received.get(id)!.headers.x_post_transformed, 'gunzip');
     assert.ok(calls.filter((c) => c.testId === id && c.stage === 'post').length >= 2, 'post-transform was not retried');
   });
 });

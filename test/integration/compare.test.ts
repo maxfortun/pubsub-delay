@@ -127,10 +127,10 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
           key: bpId,
           value: Buffer.from(`BP test ${i}`),
           headers: {
-            DELAY_DURATION: duration,
-            DELAY_DESTINATION: BP_OUTPUT,
-            DELAY_ENQUEUED_AT: bpEnqueuedAt.toString(),
-            TEST_ID: bpId,
+            delay_duration: duration,
+            delay_destination: BP_OUTPUT,
+            delay_enqueued_at: bpEnqueuedAt.toString(),
+            test_id: bpId,
           },
         }],
       });
@@ -145,10 +145,10 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
           key: twId,
           value: Buffer.from(`TW test ${i}`),
           headers: {
-            DELAY_DURATION: duration,
-            DELAY_DESTINATION: TW_OUTPUT,
-            DELAY_ENQUEUED_AT: twEnqueuedAt.toString(),
-            TEST_ID: twId,
+            delay_duration: duration,
+            delay_destination: TW_OUTPUT,
+            delay_enqueued_at: twEnqueuedAt.toString(),
+            test_id: twId,
           },
         }],
       });
@@ -170,7 +170,7 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
 
       const errors: number[] = [];
       for (const s of sent) {
-        const r = received.find((m) => m.headers['TEST_ID'] === s.id);
+        const r = received.find((m) => m.headers['test_id'] === s.id);
         if (r) {
           const actualDelay = r.receivedAt - s.sentAt;
           const error = Math.abs(actualDelay - s.delayMs);
@@ -226,10 +226,10 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
             key: bpId,
             value: Buffer.from(`BP load ${i}`),
             headers: {
-              DELAY_DURATION: duration,
-              DELAY_DESTINATION: BP_OUTPUT,
-              DELAY_ENQUEUED_AT: enqueuedAt.toString(),
-              TEST_ID: bpId,
+              delay_duration: duration,
+              delay_destination: BP_OUTPUT,
+              delay_enqueued_at: enqueuedAt.toString(),
+              test_id: bpId,
             },
           }],
         }),
@@ -239,10 +239,10 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
             key: twId,
             value: Buffer.from(`TW load ${i}`),
             headers: {
-              DELAY_DURATION: duration,
-              DELAY_DESTINATION: TW_OUTPUT,
-              DELAY_ENQUEUED_AT: enqueuedAt.toString(),
-              TEST_ID: twId,
+              delay_duration: duration,
+              delay_destination: TW_OUTPUT,
+              delay_enqueued_at: enqueuedAt.toString(),
+              test_id: twId,
             },
           }],
         }),
@@ -259,8 +259,8 @@ describe('Strategy Comparison Tests', { timeout: 60000 }, () => {
     await delay(6000);
 
     // Count received per strategy
-    const bpReceived = receivedMessages.filter((m) => m.strategy === 'BoundedPool' && m.headers['TEST_ID']?.startsWith(`bp-load-${batchId}`));
-    const twReceived = receivedMessages.filter((m) => m.strategy === 'TimeWheel' && m.headers['TEST_ID']?.startsWith(`tw-load-${batchId}`));
+    const bpReceived = receivedMessages.filter((m) => m.strategy === 'BoundedPool' && m.headers['test_id']?.startsWith(`bp-load-${batchId}`));
+    const twReceived = receivedMessages.filter((m) => m.strategy === 'TimeWheel' && m.headers['test_id']?.startsWith(`tw-load-${batchId}`));
 
     console.log('\n=== Load Test Results ===');
     console.log(`BoundedPool: ${bpReceived.length}/${messageCount} messages`);

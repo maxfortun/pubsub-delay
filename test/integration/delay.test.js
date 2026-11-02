@@ -108,9 +108,9 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
                         key: id,
                         value: Buffer.from(`Test message ${i}`),
                         headers: {
-                            DELAY_DURATION: delayDuration,
-                            DELAY_DESTINATION: DESTINATION_TOPIC,
-                            TEST_ID: id,
+                            delay_duration: delayDuration,
+                            delay_destination: DESTINATION_TOPIC,
+                            test_id: id,
                         },
                     },
                 ],
@@ -132,7 +132,7 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
         assert.strictEqual(receivedMessages.length, sentMessages.length, `Expected ${sentMessages.length} messages, got ${receivedMessages.length}`);
         // Verify timing of each message
         for (const sent of sentMessages) {
-            const received = receivedMessages.find((r) => r.headers['TEST_ID'] === sent.id);
+            const received = receivedMessages.find((r) => r.headers['test_id'] === sent.id);
             assert.ok(received, `Message ${sent.id} not received`);
             const actualDelay = received.receivedAt - sent.sentAt;
             const expectedDelay = sent.delayMs;
@@ -164,10 +164,10 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
                         key: id,
                         value: Buffer.from(`Order test ${order}`),
                         headers: {
-                            DELAY_DURATION: duration,
-                            DELAY_DESTINATION: DESTINATION_TOPIC,
-                            TEST_ID: id,
-                            EXPECTED_ORDER: order.toString(),
+                            delay_duration: duration,
+                            delay_destination: DESTINATION_TOPIC,
+                            test_id: id,
+                            expected_order: order.toString(),
                         },
                     },
                 ],
@@ -184,8 +184,8 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
         await delay(10000);
         // Verify order
         const orderReceived = receivedMessages
-            .filter((m) => m.headers['TEST_ID']?.startsWith(`order-${batchId}`))
-            .map((m) => parseInt(m.headers['EXPECTED_ORDER'], 10));
+            .filter((m) => m.headers['test_id']?.startsWith(`order-${batchId}`))
+            .map((m) => parseInt(m.headers['expected_order'], 10));
         console.log('Expected order: [1, 2, 3]');
         console.log('Received order:', orderReceived);
         assert.deepStrictEqual(orderReceived, [1, 2, 3], 'Messages not delivered in expected order');
@@ -204,8 +204,8 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
                 {
                     value: Buffer.from('Bucket test'),
                     headers: {
-                        DELAY_DURATION: uniqueDuration,
-                        DELAY_DESTINATION: DESTINATION_TOPIC,
+                        delay_duration: uniqueDuration,
+                        delay_destination: DESTINATION_TOPIC,
                     },
                 },
             ],
@@ -225,8 +225,8 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
                 {
                     value: Buffer.from('Idle test'),
                     headers: {
-                        DELAY_DURATION: uniqueDuration,
-                        DELAY_DESTINATION: DESTINATION_TOPIC,
+                        delay_duration: uniqueDuration,
+                        delay_destination: DESTINATION_TOPIC,
                     },
                 },
             ],
@@ -259,9 +259,9 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
                         key: id,
                         value: Buffer.from(`Load test message ${i}`),
                         headers: {
-                            DELAY_DURATION: duration,
-                            DELAY_DESTINATION: DESTINATION_TOPIC,
-                            TEST_ID: id,
+                            delay_duration: duration,
+                            delay_destination: DESTINATION_TOPIC,
+                            test_id: id,
                         },
                     },
                 ],
@@ -273,8 +273,8 @@ describe('PubSub Delay Integration Tests', { timeout: 120000 }, () => {
         await delay(15000);
         // Verify all messages received
         const receivedIds = new Set(receivedMessages
-            .filter((m) => m.headers['TEST_ID']?.startsWith(`load-${batchId}`))
-            .map((m) => m.headers['TEST_ID']));
+            .filter((m) => m.headers['test_id']?.startsWith(`load-${batchId}`))
+            .map((m) => m.headers['test_id']));
         const missing = [...sentIds].filter((id) => !receivedIds.has(id));
         const extra = [...receivedIds].filter((id) => !sentIds.has(id));
         console.log(`Sent: ${sentIds.size}, Received: ${receivedIds.size}`);

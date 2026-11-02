@@ -95,7 +95,7 @@ function diagram() {
   d.text(40, 72, 'One bucket topic per distinct delay. Every message in a bucket has the same delay,\nso each bucket is already sorted by deliverAt: its head is always the next one due.', { size: 18, color: '#495057' });
 
   d.box(40, 250, 180, 110, 'Producers', C.gray);
-  d.text(20, 380, 'headers:\nDELAY_DURATION=PT30S\nDELAY_DESTINATION=orders', { size: 16, color: '#495057' });
+  d.text(20, 380, 'headers:\ndelay_duration=PT30S\ndelay_destination=orders', { size: 16, color: '#495057' });
   d.arrow([[220, 305], [300, 305]]);
   d.box(300, 260, 190, 90, 'delay-ingest\n(topic)', C.blue);
   d.arrow([[490, 305], [600, 305]]);
@@ -103,7 +103,7 @@ function diagram() {
   d.frame(560, 150, 820, 600, C.violet);
   d.text(580, 160, 'pubsub-delay pod  (× N replicas, one consumer group)', { size: 18, color: C.violet[0] });
 
-  d.box(600, 250, 220, 110, 'Router\nstamps\nDELAY_ENQUEUED_AT', C.violet, { size: 16 });
+  d.box(600, 250, 220, 110, 'Router\nstamps\ndelay_enqueued_at', C.violet, { size: 16 });
 
   const bx = 880;
   d.box(bx, 200, 230, 60, 'delay-ingest-PT1S', C.blue, { size: 18 });
@@ -121,7 +121,7 @@ function diagram() {
 
   d.box(1450, 230, 190, 70, 'orders', C.yellow);
   d.box(1450, 320, 190, 70, 'billing.reminders', C.yellow, { size: 18 });
-  d.text(1450, 400, 'DELAY_DESTINATION topics', { size: 15, color: '#495057' });
+  d.text(1450, 400, 'delay_destination topics', { size: 15, color: '#495057' });
   d.arrow([[1360, 295], [1450, 265]], { label: 'at deliverAt', dx: -60, dy: -48, size: 15 });
   d.arrow([[1360, 325], [1450, 355]]);
 
@@ -161,7 +161,7 @@ function diagram() {
     d.box(1310, 200 + i * 48, 260, 38, l, i === 4 ? C.red : [C.green[0], '#ebfbee'], { size: 16 }));
 
   d.arrow([[1590, 225], [1680, 225]], { label: 'fires at\ndeliverAt', dx: -35, dy: -52, size: 15 });
-  d.box(1680, 180, 230, 100, 'produce to\nDELAY_DESTINATION\nthen ack', C.yellow, { size: 17 });
+  d.box(1680, 180, 230, 100, 'produce to\ndelay_destination\nthen ack', C.yellow, { size: 17 });
 
   // Pool full
   d.arrow([[740, 345], [740, 430]], { label: 'yes', dx: 10, dy: -12, color: C.red[0] });
@@ -216,7 +216,7 @@ function diagram() {
   d.text(cx - 150, cy + 70, 'advances one slot every\nWHEEL_RESOLUTION_MS', { size: 15, color: C.green[0], align: 'center', w: 300 });
 
   d.arrow([[cx + 42, cy - r - 10], [1480, cy - r - 10]], { label: 'tick: deliver every entry\nin the slot, in order', dx: 0, dy: -56, size: 15 });
-  d.box(1480, cy - r - 60, 240, 100, 'produce to\nDELAY_DESTINATION\nthen ack', C.yellow, { size: 17 });
+  d.box(1480, cy - r - 60, 240, 100, 'produce to\ndelay_destination\nthen ack', C.yellow, { size: 17 });
 
   d.text(1420, 330, 'Trade-offs:\n• one read per message, no pause/nack\n• precision ≈ one tick\n  (WHEEL_RESOLUTION_MS)\n• memory grows with ALL in-flight\n  messages, not bounded\n• nothing committed until delivered:\n  rebalance or crash replays the\n  whole in-flight set as duplicates\n• scales vertically, not horizontally', { size: 16 });
   d.save('time-wheel');

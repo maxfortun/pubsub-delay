@@ -20,8 +20,8 @@ Messages are appended in arrival order. If they all wait 30 seconds, they also b
 [pubsub-delay](https://github.com/maxfortun/pubsub-delay) builds on that. Producers publish to one ingest topic with two headers:
 
 ```
-DELAY_DURATION:    PT30S
-DELAY_DESTINATION: orders
+delay_duration:    PT30S
+delay_destination: orders
 ```
 
 The service forwards each message to a **bucket topic** for its exact duration (`delay-ingest-PT30S`, `delay-ingest-PT1H`, ...) and delivers each bucket's head when it is due. The broker is the only storage: no database, no Redis, no disk. Durability, replication and retention come from the broker you already run.

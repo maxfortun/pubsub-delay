@@ -12,7 +12,7 @@ const DESTINATION_TOPIC = process.env.DESTINATION_TOPIC || 'amq-output';
 const GROUP_DESTINATION_TOPIC = process.env.GROUP_DESTINATION_TOPIC || 'amq-grouped-output';
 const BUCKET_SEPARATOR = '-';
 // STOMP never shows JMSXGroupID on delivery; the service carries the key in this header
-const KEY_HEADER = process.env.KEY_HEADER || 'DELAY_KEY';
+const KEY_HEADER = process.env.KEY_HEADER || 'delay_key';
 
 interface ReceivedMessage {
   body: string;
@@ -73,9 +73,9 @@ async function jolokia(body: object): Promise<{ status: number; value?: unknown 
   const res = await fetch(JOLOKIA_URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      Origin: 'http://localhost',
-      Authorization: `Basic ${Buffer.from(`${LOGIN}:${PASSCODE}`).toString('base64')}`,
+      'content-type': 'application/json',
+      origin: 'http://localhost',
+      authorization: `Basic ${Buffer.from(`${LOGIN}:${PASSCODE}`).toString('base64')}`,
     },
     body: JSON.stringify(body),
   });
@@ -103,7 +103,7 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
   const grouped: ReceivedMessage[] = [];
   const runId = Date.now().toString(36);
 
-  const byTestId = (prefix: string, from = received) => from.filter((m) => m.headers['TEST_ID']?.startsWith(prefix));
+  const byTestId = (prefix: string, from = received) => from.filter((m) => m.headers['test_id']?.startsWith(prefix));
 
   before(async () => {
     producer = await connect();
@@ -132,10 +132,10 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
     for (const s of sent) {
       s.sentAt = Date.now();
       await send(producer, INGEST_TOPIC, {
-        DELAY_DURATION: s.duration,
-        DELAY_DESTINATION: DESTINATION_TOPIC,
-        TEST_ID: s.id,
-        X_TRACE: `trace-${s.id}`,
+        delay_duration: s.duration,
+        delay_destination: DESTINATION_TOPIC,
+        test_id: s.id,
+        x_trace: `trace-${s.id}`,
       }, `body-${s.id}`);
     }
 
@@ -148,14 +148,14 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
       assert.ok(actual >= s.ms - 100, `${s.id} delivered early: ${actual}ms < ${s.ms}ms`);
       assert.ok(actual < s.ms + 2000, `${s.id} delivered late: ${actual}ms`);
       assert.strictEqual(r.body, `body-${s.id}`);
-      assert.strictEqual(r.headers['X_TRACE'], `trace-${s.id}`, 'custom header not preserved');
-      assert.strictEqual(r.headers['DELAY_ENQUEUED_AT'], undefined, 'internal header leaked');
+      assert.strictEqual(r.headers['x_trace'], `trace-${s.id}`, 'custom header not preserved');
+      assert.strictEqual(r.headers['delay_enqueued_at'], undefined, 'internal header leaked');
     }
   });
 
   it('should deliver each message exactly once, without looping back through the bucket', async () => {
     const id = `once-${runId}`;
-    await send(producer, INGEST_TOPIC, { DELAY_DURATION: 'PT1S', DELAY_DESTINATION: DESTINATION_TOPIC, TEST_ID: id }, 'once');
+    await send(producer, INGEST_TOPIC, { delay_duration: 'PT1S', delay_destination: DESTINATION_TOPIC, test_id: id }, 'once');
     await waitFor('single message', () => byTestId(id).length === 1, 10000);
     // A leaked STOMP destination header would re-send the message to its bucket or ingest queue
     await delay(3000);
@@ -167,21 +167,21 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
     // Sent in reverse of the expected delivery order, across three buckets
     for (const [duration, order] of [['PT3S', 3], ['PT2S', 2], ['PT1S', 1]] as const) {
       await send(producer, INGEST_TOPIC, {
-        DELAY_DURATION: duration,
-        DELAY_DESTINATION: DESTINATION_TOPIC,
-        TEST_ID: `${prefix}-${order}`,
-        EXPECTED_ORDER: String(order),
+        delay_duration: duration,
+        delay_destination: DESTINATION_TOPIC,
+        test_id: `${prefix}-${order}`,
+        expected_order: String(order),
       }, 'order');
     }
     await waitFor('ordered messages', () => byTestId(prefix).length === 3, 15000);
-    const order = byTestId(prefix).map((m) => parseInt(m.headers['EXPECTED_ORDER'], 10));
+    const order = byTestId(prefix).map((m) => parseInt(m.headers['expected_order'], 10));
     assert.deepStrictEqual(order, [1, 2, 3]);
   });
 
   it('should create bucket queues dynamically', async () => {
     const id = `dynamic-${runId}`;
     const bucket = `${INGEST_TOPIC}${BUCKET_SEPARATOR}PT9S`;
-    await send(producer, INGEST_TOPIC, { DELAY_DURATION: 'PT9S', DELAY_DESTINATION: DESTINATION_TOPIC, TEST_ID: id }, 'dynamic');
+    await send(producer, INGEST_TOPIC, { delay_duration: 'PT9S', delay_destination: DESTINATION_TOPIC, test_id: id }, 'dynamic');
     await waitFor(`bucket ${bucket}`, async () => (await listQueues()).includes(bucket), 10000);
     await waitFor('dynamic message', () => byTestId(id).length === 1, 20000);
   });
@@ -189,9 +189,9 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
   it('should preserve the message key end to end', async () => {
     const id = `groupid-${runId}`;
     await send(producer, INGEST_TOPIC, {
-      DELAY_DURATION: 'PT1S',
-      DELAY_DESTINATION: DESTINATION_TOPIC,
-      TEST_ID: id,
+      delay_duration: 'PT1S',
+      delay_destination: DESTINATION_TOPIC,
+      test_id: id,
       JMSXGroupID: `order-${runId}`,
       [KEY_HEADER]: `order-${runId}`,
     }, 'grouped');
@@ -207,9 +207,9 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
     for (let seq = 0; seq < perGroup; seq++) {
       for (const group of groups) {
         await send(producer, INGEST_TOPIC, {
-          DELAY_DURATION: 'PT2S',
-          DELAY_DESTINATION: GROUP_DESTINATION_TOPIC,
-          TEST_ID: `${group}-${seq}`,
+          delay_duration: 'PT2S',
+          delay_destination: GROUP_DESTINATION_TOPIC,
+          test_id: `${group}-${seq}`,
           SEQ: String(seq),
           JMSXGroupID: group,
           [KEY_HEADER]: group,
@@ -242,15 +242,15 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
       const id = `${prefix}-${i}`;
       ids.push(id);
       await send(producer, INGEST_TOPIC, {
-        DELAY_DURATION: durations[i % durations.length],
-        DELAY_DESTINATION: DESTINATION_TOPIC,
-        TEST_ID: id,
+        delay_duration: durations[i % durations.length],
+        delay_destination: DESTINATION_TOPIC,
+        test_id: id,
       }, id);
     }
 
     await waitFor('load messages', () => byTestId(prefix).length >= count, 60000);
     await delay(2000);
-    const got = byTestId(prefix).map((m) => m.headers['TEST_ID']);
+    const got = byTestId(prefix).map((m) => m.headers['test_id']);
     const missing = ids.filter((id) => !got.includes(id));
     assert.strictEqual(missing.length, 0, `Lost ${missing.length}: ${missing.slice(0, 10).join(', ')}`);
     assert.strictEqual(got.length, new Set(got).size, `Duplicates: ${got.length - new Set(got).size}`);
@@ -259,7 +259,7 @@ describe('PubSub Delay on ActiveMQ', { timeout: 180000 }, () => {
   it('should delete idle bucket queues after timeout', async () => {
     const id = `idle-${runId}`;
     const bucket = `${INGEST_TOPIC}${BUCKET_SEPARATOR}PT11S`;
-    await send(producer, INGEST_TOPIC, { DELAY_DURATION: 'PT11S', DELAY_DESTINATION: DESTINATION_TOPIC, TEST_ID: id }, 'idle');
+    await send(producer, INGEST_TOPIC, { delay_duration: 'PT11S', delay_destination: DESTINATION_TOPIC, test_id: id }, 'idle');
     await waitFor(`bucket ${bucket}`, async () => (await listQueues()).includes(bucket), 10000);
     await waitFor('idle message', () => byTestId(id).length === 1, 20000);
     await waitFor(`bucket ${bucket} deletion`, async () => !(await listQueues()).includes(bucket), 60000);

@@ -88,7 +88,7 @@ async function main() {
       res.end('ok');
     } else if (req.url === '/metrics') {
       registry.metrics().then((body) => {
-        res.setHeader('Content-Type', registry.contentType);
+        res.setHeader('content-type', registry.contentType);
         res.end(body);
       });
     } else {

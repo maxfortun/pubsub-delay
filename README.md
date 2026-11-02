@@ -5,8 +5,8 @@ A broker-agnostic **delayed message delivery** service for pub/sub systems. Brok
 Producers publish a message to one ingest topic with two headers: how long to wait and where to send it. pubsub-delay produces the message to that destination once the delay has passed. The broker is the only storage. There is no database, no Redis and no local disk, and the service keeps almost no state of its own.
 
 ```
-DELAY_DURATION:    PT30S      # ISO 8601 duration
-DELAY_DESTINATION: orders     # topic to deliver to
+delay_duration:    PT30S      # ISO 8601 duration
+delay_destination: orders     # topic to deliver to
 ```
 
 ## Why
@@ -23,10 +23,10 @@ pubsub-delay takes a different approach. Messages stay in the broker until they 
 
 ![Architecture](docs/diagrams/architecture.jpg)
 
-1. **Ingest.** Producers publish to `delay-ingest` with the `DELAY_DURATION` ([ISO 8601 duration](https://en.wikipedia.org/wiki/ISO_8601#Durations)) and `DELAY_DESTINATION` headers.
-2. **Router.** The router runs the optional [pre-transform](#transforms), stamps `DELAY_ENQUEUED_AT` with the current time, and forwards the message to a **bucket topic** for that exact duration, e.g. `delay-ingest-PT30S`. It creates the bucket on first use.
+1. **Ingest.** Producers publish to `delay-ingest` with the `delay_duration` ([ISO 8601 duration](https://en.wikipedia.org/wiki/ISO_8601#Durations)) and `delay_destination` headers.
+2. **Router.** The router runs the optional [pre-transform](#transforms), stamps `delay_enqueued_at` with the current time, and forwards the message to a **bucket topic** for that exact duration, e.g. `delay-ingest-PT30S`. It creates the bucket on first use.
 3. **Bucket advisory.** New and removed buckets are broadcast on `delay-ingest-advisory`, so every replica (re)subscribes its scheduler without polling the broker.
-4. **Scheduler.** The scheduler consumes all bucket topics and delivers each message to `DELAY_DESTINATION` at `deliverAt = DELAY_ENQUEUED_AT + DELAY_DURATION`, after the optional [post-transform](#transforms). *How* it waits is a pluggable strategy: [BoundedPool](#boundedpool) or [TimeWheel](#timewheel).
+4. **Scheduler.** The scheduler consumes all bucket topics and delivers each message to `delay_destination` at `deliverAt = delay_enqueued_at + delay_duration`, after the optional [post-transform](#transforms). *How* it waits is a pluggable strategy: [BoundedPool](#boundedpool) or [TimeWheel](#timewheel).
 5. **Cleanup.** Cleanup runs in two phases, so a topic is never deleted while a scheduler is still subscribed to it:
    1. A bucket that has been idle for `BUCKET_IDLE_TIMEOUT_MS`, with a scheduler lag of 0, is unsubscribed on every pod and broadcast as removed. The removing pod keeps a *tombstone* for it, so periodic discovery does not re-add a topic that still exists.
    2. After `BUCKET_DELETE_GRACE_MS`, the removing pod deletes the topic if its lag is still 0. If messages arrived in the meantime, it re-adds the bucket instead.
@@ -59,7 +59,7 @@ Pick a strategy with `SCHEDULER_STRATEGY`. Both run behind the same interface, s
 BoundedPool is the default strategy and an original design for this project. It holds **at most `TIMEOUT_POOL_SIZE` messages** with live timers and leaves everything else unread in the broker.
 
 1. **Peek** the head of a bucket and compute `deliverAt`.
-2. **If the pool has room**, add the message with `setTimeout(deliverAt − now)`. When the timer fires, produce to `DELAY_DESTINATION`, then ack.
+2. **If the pool has room**, add the message with `setTimeout(deliverAt − now)`. When the timer fires, produce to `delay_destination`, then ack.
 3. **If the pool is full**, compare the message with the one in the pool that is due furthest in the future.
    * **Sooner:** evict the furthest message. Nack it, cache its `deliverAt`, and pause its bucket. Then add the new message.
    * **Not sooner:** cache this message's `deliverAt`, pause this bucket, and nack.
@@ -131,7 +131,7 @@ A transform plugin can change or reject a message at two points:
 * **pre**, in the router, before the message is written to its bucket
 * **post**, in the scheduler, after the delay and before delivery
 
-Typical uses are encrypting or compressing a payload while it waits, a [claim check](https://www.enterpriseintegrationpatterns.com/patterns/messaging/StoreInLibrary.html) that parks a large body elsewhere, or an auth check on the `Authorization` header before a message is accepted.
+Typical uses are encrypting or compressing a payload while it waits, a [claim check](https://www.enterpriseintegrationpatterns.com/patterns/messaging/StoreInLibrary.html) that parks a large body elsewhere, or an auth check on the `authorization` header before a message is accepted.
 
 A transform has three outcomes:
 
@@ -155,7 +155,7 @@ Request body:
   "topic": "delay-ingest",
   "destination": "orders",
   "key": "order-42",
-  "headers": { "DELAY_DURATION": "PT30S", "Authorization": "Bearer ..." },
+  "headers": { "delay_duration": "PT30S", "authorization": "Bearer ..." },
   "body": "<base64>"
 }
 ```
@@ -169,7 +169,7 @@ Request body:
 | `4xx` (except 408 and 429) | reject, e.g. `401` or `403` from an auth check |
 | `5xx`, `408`, `429`, timeout, network error or malformed reply | error, retried |
 
-The request times out after `TRANSFORM_HTTP_TIMEOUT_MS`. A pre-transform may change `DELAY_DURATION` or `DELAY_DESTINATION`; routing uses the headers it returns.
+The request times out after `TRANSFORM_HTTP_TIMEOUT_MS`. A pre-transform may change `delay_duration` or `delay_destination`; routing uses the headers it returns.
 
 ## ActiveMQ
 
@@ -185,11 +185,11 @@ The request times out after `TRANSFORM_HTTP_TIMEOUT_MS`. A pre-transform may cha
 
 ActiveMQ [message groups](https://activemq.apache.org/components/classic/documentation/message-groups) (`JMSXGroupID`) are the equivalent of a Kafka message key: all messages of a group go to one consumer, in order. pubsub-delay sets `JMSXGroupID` from the message key on every send, so groups keep their consumer affinity on the bucket queues and on the destination.
 
-ActiveMQ applies `JMSXGroupID` on SEND but does not include it in STOMP MESSAGE frames. The key therefore also travels in an ordinary header, `DELAY_KEY` (`KEY_HEADER`). Producers should set both:
+ActiveMQ applies `JMSXGroupID` on SEND but does not include it in STOMP MESSAGE frames. The key therefore also travels in an ordinary header, `delay_key` (`KEY_HEADER`). Producers should set both:
 
 ```
 JMSXGroupID: order-42     # group affinity on the ingest queue
-DELAY_KEY:   order-42     # carries the key through the delay
+delay_key:   order-42     # carries the key through the delay
 ```
 
 Headers the broker sets per delivery (`destination`, `message-id`, `subscription`, `expires`, `priority` and so on, see `ACTIVEMQ_STRIP_HEADERS`) are dropped rather than forwarded.
@@ -273,11 +273,11 @@ All settings are environment variables.
 |---|---|---|
 | `INGEST_TOPIC` | `delay-ingest` | Topic producers publish delayed messages to |
 | `BUCKET_SEPARATOR` | `-` | Separator between ingest topic and duration in bucket names |
-| `HEADER_PREFIX` | `DELAY_` | Prefix for all service headers |
-| `DESTINATION_HEADER` | `${HEADER_PREFIX}DESTINATION` | Header naming the delivery topic |
-| `DELAY_DURATION_HEADER` | `${HEADER_PREFIX}DURATION` | Header carrying the ISO 8601 delay |
-| `ENQUEUED_AT_HEADER` | `${HEADER_PREFIX}ENQUEUED_AT` | Header stamped with the enqueue time (ms) |
-| `KEY_HEADER` | `${HEADER_PREFIX}KEY` | ActiveMQ: header carrying the message key (see [Message groups](#message-groups-and-keys)) |
+| `HEADER_PREFIX` | `delay_` | Prefix for all service headers (header names are lowercased) |
+| `DESTINATION_HEADER` | `${HEADER_PREFIX}destination` | Header naming the delivery topic |
+| `DELAY_DURATION_HEADER` | `${HEADER_PREFIX}duration` | Header carrying the ISO 8601 delay |
+| `ENQUEUED_AT_HEADER` | `${HEADER_PREFIX}enqueued_at` | Header stamped with the enqueue time (ms) |
+| `KEY_HEADER` | `${HEADER_PREFIX}key` | ActiveMQ: header carrying the message key (see [Message groups](#message-groups-and-keys)) |
 | `CONSUMER_GROUP_PREFIX` | `pubsub-delay` | Prefix for router, scheduler and advisory groups |
 | `INSTANCE_ID` | `$HOSTNAME` | Static group membership id |
 

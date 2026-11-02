@@ -78,7 +78,7 @@ function config() {
 
 const msg = (headers: Record<string, string>): Message => ({
   key: 'k',
-  headers: { DELAY_DURATION: 'PT5S', DELAY_DESTINATION: 'out', ...headers },
+  headers: { delay_duration: 'PT5S', delay_destination: 'out', ...headers },
   body: Buffer.from('payload'),
 });
 
@@ -105,25 +105,40 @@ describe('Router pre-transform', () => {
   it('routes the transformed message to the bucket and acks', async () => {
     const t = new ScriptedTransform((m) => ({
       action: 'forward',
-      message: { ...m, headers: { ...m.headers, X_PRE: '1' }, body: Buffer.from('changed') },
+      message: { ...m, headers: { ...m.headers, x_pre: '1' }, body: Buffer.from('changed') },
     }));
     const fake = await run(t, [msg({})], (b) => b.acked.length === 1);
     assert.strictEqual(t.calls[0].stage, 'pre');
     assert.strictEqual(t.calls[0].topic, 'delay-ingest');
     assert.strictEqual(fake.sent.length, 1);
     assert.strictEqual(fake.sent[0].topic, 'delay-ingest-PT5S');
-    assert.strictEqual(fake.sent[0].message.headers.X_PRE, '1');
+    assert.strictEqual(fake.sent[0].message.headers.x_pre, '1');
     assert.strictEqual(fake.sent[0].message.body.toString(), 'changed');
-    assert.ok(fake.sent[0].message.headers.DELAY_ENQUEUED_AT);
+    assert.ok(fake.sent[0].message.headers.delay_enqueued_at);
   });
 
   it('routes by the headers the transform returns', async () => {
     const t = new ScriptedTransform((m) => ({
       action: 'forward',
-      message: { ...m, headers: { ...m.headers, DELAY_DURATION: 'PT1M' } },
+      message: { ...m, headers: { ...m.headers, delay_duration: 'PT1M' } },
     }));
     const fake = await run(t, [msg({})], (b) => b.acked.length === 1);
     assert.strictEqual(fake.sent[0].topic, 'delay-ingest-PT1M');
+  });
+
+  it('matches service headers case-insensitively', async () => {
+    const t = new ScriptedTransform((m) => ({ action: 'forward', message: m }));
+    const legacy: Message = {
+      key: 'k',
+      headers: { DELAY_DURATION: 'PT10S', DELAY_DESTINATION: 'out', DELAY_ENQUEUED_AT: '1' },
+      body: Buffer.from('payload'),
+    };
+    const fake = await run(t, [legacy], (b) => b.acked.length === 1);
+    assert.strictEqual(fake.sent.length, 1);
+    assert.strictEqual(fake.sent[0].topic, 'delay-ingest-PT10S');
+    const headers = fake.sent[0].message.headers;
+    assert.strictEqual(headers.DELAY_ENQUEUED_AT, undefined, 'stale enqueued-at not replaced');
+    assert.ok(Number(headers.delay_enqueued_at) > 1);
   });
 
   it('acks and drops a rejected message without writing to a bucket', async () => {
@@ -138,10 +153,10 @@ describe('Router pre-transform', () => {
       if (call < 3) throw new Error('plugin down');
       return { action: 'forward', message: m };
     });
-    const fake = await run(t, [msg({ TEST_ID: 'retry' })], (b) => b.acked.length === 1);
+    const fake = await run(t, [msg({ test_id: 'retry' })], (b) => b.acked.length === 1);
     assert.strictEqual(fake.nacked.length, 2);
     assert.strictEqual(fake.sent.length, 1);
-    assert.strictEqual(fake.sent[0].message.headers.TEST_ID, 'retry');
+    assert.strictEqual(fake.sent[0].message.headers.test_id, 'retry');
   });
 });
 
@@ -161,7 +176,7 @@ describe('Router failures', () => {
   });
 
   it('skips a message with an invalid duration without retrying', async () => {
-    const fake = await run(passthrough(), [msg({ DELAY_DURATION: 'soon' })], (b) => b.acked.length === 1);
+    const fake = await run(passthrough(), [msg({ delay_duration: 'soon' })], (b) => b.acked.length === 1);
     assert.strictEqual(fake.sent.length, 0);
     assert.strictEqual(fake.nacked.length, 0);
   });

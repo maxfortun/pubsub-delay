@@ -24,7 +24,7 @@ function reply(res: ServerResponse, status: number, body?: unknown): void {
 
 const message = (): Message => ({
   key: 'k1',
-  headers: { Authorization: 'Bearer good', DELAY_DURATION: 'PT1S', DELAY_DESTINATION: 'out' },
+  headers: { Authorization: 'Bearer good', delay_duration: 'PT1S', delay_destination: 'out' },
   body: Buffer.from('hello'),
 });
 
@@ -85,7 +85,7 @@ describe('HttpTransform', () => {
   it('replaces the message with the 200 reply and keeps omitted fields', async () => {
     handler = (req, res) => {
       const { Authorization: _, ...headers } = req.headers;
-      reply(res, 200, { headers: { ...headers, X_CHECKED: 'yes' } });
+      reply(res, 200, { headers: { ...headers, x_checked: 'yes' } });
     };
     const t = new HttpTransform({ pre: `${baseUrl}/pre` }, 1000);
     const result = await t.apply(message(), { stage: 'pre', topic: 'delay-ingest' });
@@ -94,7 +94,7 @@ describe('HttpTransform', () => {
     assert.strictEqual(result.message.key, 'k1');
     assert.strictEqual(result.message.body.toString(), 'hello');
     assert.strictEqual(result.message.headers.Authorization, undefined);
-    assert.strictEqual(result.message.headers.X_CHECKED, 'yes');
+    assert.strictEqual(result.message.headers.x_checked, 'yes');
   });
 
   it('round-trips binary bodies (compress on pre, decompress on post)', async () => {

@@ -1,6 +1,7 @@
 import { Broker, Consumer, Producer, Message } from './broker/types.js';
 import { DelayServiceConfig, durationToBucketTopic } from './config.js';
 import { parseDurationToMs } from './duration.js';
+import { getHeader, withoutHeader } from './headers.js';
 import { BucketAdvisory } from './bucket-advisory.js';
 import { Transform, applyTransform } from './transform/index.js';
 
@@ -72,16 +73,16 @@ export class Router {
   }
 
   private async routeMessage(message: Message): Promise<void> {
-    const isoDuration = message.headers[this.config.delayDurationHeader];
-    const destination = message.headers[this.config.destinationHeader];
+    const isoDuration = getHeader(message.headers, this.config.delayDurationHeader);
+    const destination = getHeader(message.headers, this.config.destinationHeader);
 
     if (!isoDuration) {
-      console.warn('Message missing DELAY_DURATION header, skipping');
+      console.warn('Message missing delay_duration header, skipping');
       return;
     }
 
     if (!destination) {
-      console.warn('Message missing DELAY_DESTINATION header, skipping');
+      console.warn('Message missing delay_destination header, skipping');
       return;
     }
 
@@ -89,7 +90,7 @@ export class Router {
     try {
       delayMs = parseDurationToMs(isoDuration);
     } catch {
-      console.warn(`Message has invalid DELAY_DURATION ${isoDuration}, skipping`);
+      console.warn(`Message has invalid delay_duration ${isoDuration}, skipping`);
       return;
     }
     const bucketTopic = durationToBucketTopic(
@@ -103,7 +104,7 @@ export class Router {
     const stampedMessage: Message = {
       key: message.key,
       headers: {
-        ...message.headers,
+        ...withoutHeader(message.headers, this.config.enqueuedAtHeader),
         [this.config.enqueuedAtHeader]: Date.now().toString(),
       },
       body: message.body,

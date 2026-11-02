@@ -1,6 +1,7 @@
 import { Broker, Consumer, Producer, Message, MessageEnvelope } from './broker/types.js';
 import { DelayServiceConfig, bucketTopicToDuration } from './config.js';
 import { parseDurationToMs } from './duration.js';
+import { getHeader, withoutHeader } from './headers.js';
 import { BucketAdvisory } from './bucket-advisory.js';
 import { createStrategy, SchedulerStrategy } from './strategy/index.js';
 import { deliveryLateness, messagesTotal, setSchedulerStatsSource } from './metrics.js';
@@ -48,7 +49,7 @@ export class Scheduler {
 
     this.strategy.setDeliveryHandler(async (envelope, destination, deliverAt) => {
       const { message } = envelope;
-      const { [this.config.enqueuedAtHeader]: _, ...forwardHeaders } = message.headers;
+      const forwardHeaders = withoutHeader(message.headers, this.config.enqueuedAtHeader);
       const forwardMessage: Message = {
         key: message.key,
         headers: forwardHeaders,
@@ -292,14 +293,14 @@ export class Scheduler {
       return;
     }
 
-    const destination = message.headers[this.config.destinationHeader];
+    const destination = getHeader(message.headers, this.config.destinationHeader);
     if (!destination) {
       console.warn('Scheduler: message missing destination, skipping');
       await this.consumer!.ack(envelope);
       return;
     }
 
-    const enqueuedAtStr = message.headers[this.config.enqueuedAtHeader];
+    const enqueuedAtStr = getHeader(message.headers, this.config.enqueuedAtHeader);
     const enqueuedAt = enqueuedAtStr ? parseInt(enqueuedAtStr, 10) : Date.now();
     const delayMs = parseDurationToMs(isoDuration);
     const deliverAt = enqueuedAt + delayMs;

@@ -151,7 +151,7 @@ async function main() {
     await consumer.subscribe({ topic: target.output, fromBeginning: false });
     await consumer.run({
       eachMessage: async ({ message }: EachMessagePayload) => {
-        const testId = message.headers?.['TEST_ID']?.toString();
+        const testId = message.headers?.['test_id']?.toString();
         if (!testId) return;
         const s = stats[target.name];
         const info = pending.get(testId);
@@ -204,10 +204,10 @@ async function main() {
           key: id,
           value: Buffer.from(`stress-${n}`),
           headers: {
-            DELAY_DURATION: `PT${delaySec}S`,
-            DELAY_DESTINATION: t.output,
-            DELAY_ENQUEUED_AT: sentAt.toString(),
-            TEST_ID: id,
+            delay_duration: `PT${delaySec}S`,
+            delay_destination: t.output,
+            delay_enqueued_at: sentAt.toString(),
+            test_id: id,
           },
         });
       }
